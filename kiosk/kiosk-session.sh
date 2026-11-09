@@ -1,0 +1,88 @@
+#!/bin/bash
+# X session for the Home Assistant kiosk. Started by startx from the kiosk
+# user's ~/.bash_profile on tty1. Keeps Chromium running forever.
+set -u
+
+CONF=/etc/odroid-ha/odroid-ha.conf
+# shellcheck source=/dev/null
+[ -r "$CONF" ] && . "$CONF"
+
+HA_URL="${HA_URL:-http://homeassistant.local:8123}"
+SCREEN_ROTATION="${SCREEN_ROTATION:-normal}"
+SCREEN_MODE="${SCREEN_MODE:-}"
+SCREEN_ALWAYS_ON="${SCREEN_ALWAYS_ON:-1}"
+SCREEN_BLANK_SECONDS="${SCREEN_BLANK_SECONDS:-600}"
+CHROMIUM_ZOOM="${CHROMIUM_ZOOM:-1.0}"
+CHROMIUM_EXTRA_FLAGS="${CHROMIUM_EXTRA_FLAGS:-}"
+
+log() { echo "[kiosk] $*"; logger -t ha-kiosk "$*" 2>/dev/null || true; }
+
+# ── Display output, mode, rotation ──────────────────────────────────────────
+OUTPUT=$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')
+if [ -n "$OUTPUT" ]; then
+    if [ -n "$SCREEN_MODE" ]; then
+        xrandr --output "$OUTPUT" --mode "$SCREEN_MODE" || log "mode $SCREEN_MODE not available on $OUTPUT"
+    fi
+    xrandr --output "$OUTPUT" --rotate "$SCREEN_ROTATION" || log "rotation $SCREEN_ROTATION failed"
+fi
+
+# Rotate touch input to match the screen
+case "$SCREEN_ROTATION" in
+    left)     MATRIX="0 -1 1 1 0 0 0 0 1" ;;
+    right)    MATRIX="0 1 0 -1 0 1 0 0 1" ;;
+    inverted) MATRIX="-1 0 1 0 -1 1 0 0 1" ;;
+    *)        MATRIX="1 0 0 0 1 0 0 0 1" ;;
+esac
+if command -v xinput >/dev/null; then
+    # Every pointer device (touch panel included) gets the same matrix
+    xinput list --id-only 2>/dev/null | while read -r id; do
+        if xinput list-props "$id" 2>/dev/null | grep -q "Coordinate Transformation Matrix"; then
+            # shellcheck disable=SC2086
+            xinput set-prop "$id" "Coordinate Transformation Matrix" $MATRIX 2>/dev/null || true
+        fi
+    done
+fi
+
+# ── Screen blanking ─────────────────────────────────────────────────────────
+if [ "$SCREEN_ALWAYS_ON" = "1" ]; then
+    xset s off; xset s noblank; xset -dpms
+else
+    xset s "$SCREEN_BLANK_SECONDS" "$SCREEN_BLANK_SECONDS"; xset +dpms
+    xset dpms "$SCREEN_BLANK_SECONDS" "$SCREEN_BLANK_SECONDS" "$SCREEN_BLANK_SECONDS"
+fi
+
+# ── Wait (max ~2 min) for Home Assistant so we don't show an error page ────
+for _ in $(seq 1 60); do
+    curl -fsS -m 3 -o /dev/null "$HA_URL" && break
+    sleep 2
+done
+
+# ── Chromium, restarted if it ever exits or crashes ─────────────────────────
+PROFILE="$HOME/.config/chromium-kiosk"
+mkdir -p "$PROFILE"
+while true; do
+    # Clear "Chromium didn't shut down correctly" bubble after a power cut
+    PREFS="$PROFILE/Default/Preferences"
+    if [ -f "$PREFS" ]; then
+        sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"Crashed"/"exit_type":"Normal"/' "$PREFS"
+    fi
+    log "starting chromium -> $HA_URL"
+    # shellcheck disable=SC2086
+    chromium \
+        --kiosk "$HA_URL" \
+        --user-data-dir="$PROFILE" \
+        --no-first-run \
+        --noerrdialogs \
+        --disable-infobars \
+        --disable-session-crashed-bubble \
+        --disable-features=TranslateUI,Translate \
+        --check-for-update-interval=31536000 \
+        --overscroll-history-navigation=0 \
+        --disable-pinch \
+        --password-store=basic \
+        --force-device-scale-factor="$CHROMIUM_ZOOM" \
+        --touch-events=enabled \
+        $CHROMIUM_EXTRA_FLAGS
+    log "chromium exited ($?), restarting in 5s"
+    sleep 5
+done

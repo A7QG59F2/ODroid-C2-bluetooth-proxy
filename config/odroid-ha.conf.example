@@ -1,0 +1,51 @@
+# Odroid C2 – Home Assistant Bluetooth proxy + kiosk
+# Copy to /etc/odroid-ha/odroid-ha.conf (install.sh does this for you on first run)
+# and edit, then re-run:  sudo ./install.sh
+#
+# Lines are plain shell assignments: KEY="value"  (no spaces around '=')
+
+# ─── Home Assistant ─────────────────────────────────────────────────────────
+# Full URL of the dashboard the kiosk should open.
+# Tip: a dedicated light-weight dashboard works best on the C2's GPU.
+HA_URL="http://homeassistant.local:8123/lovelace/0"
+
+# ─── Bluetooth proxy (denvera/bt-proxy) ─────────────────────────────────────
+ENABLE_BT_PROXY="1"
+# Name shown in Home Assistant (lowercase, letters/numbers/dashes)
+BT_PROXY_NAME="odroid-c2-btproxy"
+BT_PROXY_FRIENDLY_NAME="Odroid C2 Bluetooth Proxy"
+# The C2 has no built-in Bluetooth, so the TP-Link UB500 is hci0.
+BT_ADAPTER="hci0"
+# Max simultaneous active BLE connections handled for HA
+BT_MAX_CONNECTIONS="3"
+BT_PROXY_LOG_LEVEL="INFO"
+
+# ─── Kiosk (Chromium on X, MAGEX 10.1" touch screen) ────────────────────────
+ENABLE_KIOSK="1"
+# Linux user that auto-logs in on tty1 and runs the kiosk
+KIOSK_USER="kiosk"
+# Screen rotation: normal | left | right | inverted   (touch follows automatically)
+SCREEN_ROTATION="normal"
+# Force a mode if auto-detect picks the wrong one, e.g. "1280x800" or "1920x1200". Empty = auto.
+SCREEN_MODE=""
+# Keep the screen on (1) or let it blank after SCREEN_BLANK_SECONDS (0)
+SCREEN_ALWAYS_ON="1"
+SCREEN_BLANK_SECONDS="600"
+# Hide the mouse cursor (touch screen)
+HIDE_CURSOR="1"
+# Chromium page zoom (1.0 = 100%). 1.25 makes a 1920x1200 panel readable at 10".
+CHROMIUM_ZOOM="1.0"
+# Extra Chromium flags. If you get a blank/white window, add: --disable-gpu
+CHROMIUM_EXTRA_FLAGS=""
+
+# ─── Wi-Fi (TL-WN821N, Ralink RT5572, dual-band) ────────────────────────────
+# The install script only adds the firmware and turns off Wi-Fi power saving.
+# Join the network with:  dietpi-config → Network Options: Adapters → WiFi
+# Use the router's 5 GHz SSID so Wi-Fi doesn't fight the Bluetooth dongle.
+WIFI_DISABLE_POWERSAVE="1"
+
+# ─── JVC KD-SX38MBT (Bluetooth Classic / SPP) ───────────────────────────────
+# Installs the probe tool in /opt/odroid-ha/jvc. The MQTT bridge comes later,
+# once the JVC Remote command bytes have been captured.
+ENABLE_JVC_TOOLS="1"
+JVC_MAC="88:E0:34:B7:98:6C"
