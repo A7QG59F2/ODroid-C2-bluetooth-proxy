@@ -5,7 +5,7 @@ One **DietPi** install on an Odroid C2 that does three jobs:
 | Job | How |
 |---|---|
 | **Bluetooth proxy** for Home Assistant | [`denvera/bt-proxy`](https://github.com/denvera/bt-proxy) runs natively as a systemd service. HA sees it as an ESPHome Bluetooth proxy, with active connections supported. |
-| **Wall/desk dashboard kiosk** | Auto-login on tty1 → X → Chromium in kiosk mode on the MAGEX 10.1" touch screen. Restarts itself if it crashes. |
+| **Wall/desk dashboard kiosk** | Auto-login on tty1 → X → Chromium in kiosk mode on the MAGEX 10.1" touch screen, with an **on-screen keyboard** that pops up on its own. Restarts itself if it crashes. |
 | **JVC KD-SX38MBT groundwork** | `jvc-probe.py` pairs and talks to the receiver over Bluetooth Classic SPP, to replay the JVC Remote app's commands. See [`jvc/README.md`](jvc/README.md). |
 
 ## Hardware this targets
@@ -58,6 +58,7 @@ DietPi then sets itself up, and the last step runs [`dietpi/Automation_Custom_Sc
    - applies screen mode and rotation, and rotates touch to match
    - disables blanking (or sets a timeout)
    - hides the cursor
+   - starts the on-screen keyboard (Onboard) with its accessibility bus
    - waits for HA, then runs Chromium `--kiosk` in a restart loop
 6. Installs `/opt/odroid-ha/jvc/jvc-probe.py`.
 7. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply).
@@ -89,6 +90,34 @@ If not: **Add Integration → ESPHome → host `<odroid-ip>`, port `6053`**. bt-
 **Clean screen:** install [kiosk-mode](https://github.com/NemesisRE/kiosk-mode) from HACS to hide the header and sidebar for the kiosk user.
 Make a dashboard laid out for the panel (1280×800 or 1920×1200 landscape).
 
+## On-screen keyboard
+
+Uses **Onboard**. Tap any text field in Home Assistant (search, login, a text helper, the Assist box) and the
+keyboard slides up from the bottom. It hides again when the field loses focus. A small floating button stays on
+screen so you can open it by hand if auto-show ever misses.
+
+Auto-show in a bare X kiosk usually fails in silence. These are the pieces this setup puts in place for it to work:
+
+| Piece | Why it's needed |
+|---|---|
+| A D-Bus **session bus** (`dbus-run-session` around the whole kiosk session) | Onboard and Chromium have to share it, or they can't talk |
+| **AT-SPI** accessibility bus (`at-spi2-core`, `at-spi-bus-launcher`) | Carries "a text field got focus" from Chromium to Onboard |
+| GTK/ATK bridge (`libatk-adaptor`, `GTK_MODULES=gail:atk-bridge`) + `gir1.2-atspi-2.0` | How Chromium reports focus, and how Onboard listens for it |
+| Chromium `--force-renderer-accessibility` | Without it, Chromium never reports web-page text fields |
+| `toolkit-accessibility=true` + all Onboard settings as **system dconf defaults** | No clicking through `onboard-settings` on the touch screen, and no "enable accessibility?" pop-up |
+| Onboard `force-to-top` + docking | Keeps the keyboard above full-screen Chromium even with no window manager |
+
+Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME`, `OSK_EDGE`, `OSK_FLOATING_BUTTON` and
+`OSK_TOUCH_INPUT`. Re-run `install.sh` after changing them, then reboot.
+
+**If the keyboard misbehaves:**
+
+- **Never pops up:** run `odroid-ha-check`. "keyboard" and "a11y bus" should both say running.
+  Check `~kiosk/.onboard.log` for `AT-SPI` errors. The floating button still works as a fallback.
+- **Keys type twice, or not at all:** set `OSK_TOUCH_INPUT` to `single` or `multi` (default `none` treats touch as a mouse).
+- **Covers the field you're typing in:** set `OSK_EDGE="top"`, or keep text inputs near the top of the dashboard.
+- **Turn it off:** `ONSCREEN_KEYBOARD="0"`.
+
 ## Settings (`/etc/odroid-ha/odroid-ha.conf`)
 
 | Key | Default | Meaning |
@@ -102,6 +131,9 @@ Make a dashboard laid out for the panel (1280×800 or 1920×1200 landscape).
 | `SCREEN_ALWAYS_ON` / `SCREEN_BLANK_SECONDS` | `1` / `600` | Blanking |
 | `CHROMIUM_ZOOM` | `1.0` | e.g. `1.25` on a 1920×1200 panel |
 | `CHROMIUM_EXTRA_FLAGS` | empty | Add `--disable-gpu` if the page is blank/white |
+| `ONSCREEN_KEYBOARD` | `1` | Onboard keyboard with auto-show |
+| `OSK_LAYOUT` / `OSK_THEME` / `OSK_EDGE` | `Compact` / `Droid` / `bottom` | Keyboard look and position |
+| `OSK_FLOATING_BUTTON` / `OSK_TOUCH_INPUT` | `1` / `none` | Manual-open button; touch handling |
 | `WIFI_DISABLE_POWERSAVE` | `1` | Keep RT5572 awake |
 | `JVC_MAC` | `88:E0:34:B7:98:6C` | KD-SX38MBT |
 

@@ -3,9 +3,17 @@
 # user's ~/.bash_profile on tty1. Keeps Chromium running forever.
 set -u
 
+# Onboard (on-screen keyboard) and Chromium must share one D-Bus session so the
+# accessibility (AT-SPI) bus can tell Onboard when a text field gets focus.
+# Without a session bus, auto-show silently never fires.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null; then
+    exec dbus-run-session -- "$0" "$@"
+fi
+
 CONF=/etc/odroid-ha/odroid-ha.conf
 # shellcheck source=/dev/null
 [ -r "$CONF" ] && . "$CONF"
+ONSCREEN_KEYBOARD="${ONSCREEN_KEYBOARD:-1}"
 
 HA_URL="${HA_URL:-http://homeassistant.local:8123}"
 SCREEN_ROTATION="${SCREEN_ROTATION:-normal}"
@@ -57,6 +65,29 @@ for _ in $(seq 1 60); do
     sleep 2
 done
 
+# ── On-screen keyboard (Onboard) ────────────────────────────────────────────
+A11Y_FLAGS=""
+if [ "$ONSCREEN_KEYBOARD" = "1" ] && command -v onboard >/dev/null; then
+    # Turn on the accessibility stack for this session
+    export ACCESSIBILITY_ENABLED=1 NO_AT_BRIDGE=0 GTK_MODULES="${GTK_MODULES:+$GTK_MODULES:}gail:atk-bridge"
+    gsettings set org.gnome.desktop.interface toolkit-accessibility true 2>/dev/null || true
+    for l in /usr/libexec/at-spi-bus-launcher /usr/lib/at-spi2-core/at-spi-bus-launcher; do
+        [ -x "$l" ] && { "$l" --launch-immediately & break; }
+    done
+    sleep 1
+    # Keep Onboard alive. Its settings come from /etc/dconf/db/odroidha.d (install.sh).
+    (
+        while true; do
+            onboard >>"$HOME/.onboard.log" 2>&1
+            log "onboard exited ($?), restarting in 3s"
+            sleep 3
+        done
+    ) &
+    # Chromium only exposes text fields to AT-SPI when told to
+    A11Y_FLAGS="--force-renderer-accessibility"
+    log "on-screen keyboard enabled"
+fi
+
 # ── Chromium, restarted if it ever exits or crashes ─────────────────────────
 PROFILE="$HOME/.config/chromium-kiosk"
 mkdir -p "$PROFILE"
@@ -82,6 +113,7 @@ while true; do
         --password-store=basic \
         --force-device-scale-factor="$CHROMIUM_ZOOM" \
         --touch-events=enabled \
+        $A11Y_FLAGS \
         $CHROMIUM_EXTRA_FLAGS
     log "chromium exited ($?), restarting in 5s"
     sleep 5

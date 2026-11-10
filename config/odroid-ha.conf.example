@@ -38,6 +38,23 @@ CHROMIUM_ZOOM="1.0"
 # Extra Chromium flags. If you get a blank/white window, add: --disable-gpu
 CHROMIUM_EXTRA_FLAGS=""
 
+# ─── On-screen keyboard (Onboard) ───────────────────────────────────────────
+# Pops up by itself when a text field in Home Assistant is tapped, and hides
+# again when it loses focus.
+ONSCREEN_KEYBOARD="1"
+# Layout name: Compact | Small | Phone | "Full Keyboard" | Grid | Whiteboard
+OSK_LAYOUT="Compact"
+# Theme name: Droid | Nightshade | Blackboard | Charcoal | ModelM | HighContrast
+OSK_THEME="Droid"
+# Dock the keyboard at the bottom (or top) edge of the screen
+OSK_EDGE="bottom"
+# Small floating button that opens the keyboard by hand, for any field
+# where auto-show doesn't fire. 1 = show it.
+OSK_FLOATING_BUTTON="1"
+# How Onboard reads touches: none (touch acts as a mouse; most compatible),
+# single, or multi. If keys register twice or not at all, try another one.
+OSK_TOUCH_INPUT="none"
+
 # ─── Wi-Fi (TL-WN821N, Ralink RT5572, dual-band) ────────────────────────────
 # The install script only adds the firmware and turns off Wi-Fi power saving.
 # Join the network with:  dietpi-config → Network Options: Adapters → WiFi
