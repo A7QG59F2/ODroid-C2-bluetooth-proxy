@@ -1,0 +1,81 @@
+# CLAUDE.md
+
+Context for Claude Code working in this repo. Read this first; the README has the user-facing details.
+
+## What this project is
+
+One **DietPi** install on an **Odroid C2** that is, at the same time:
+
+1. a **Home Assistant Bluetooth proxy**: `denvera/bt-proxy` runs natively (uv venv in `/opt/bt-proxy`) as `bt-proxy.service`, ESPHome Native API on port 6053, plaintext only (no Noise encryption)
+2. a **dashboard kiosk** on a MAGEX 10.1" HDMI touch screen: tty1 autologin as user `kiosk` → `startx` → `kiosk/kiosk-session.sh` → Chromium `--kiosk`, with the **Onboard** on-screen keyboard
+3. groundwork for controlling a **JVC KD-SX38MBT** car receiver over Bluetooth Classic SPP (`jvc/`)
+
+The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so PowerShell for anything on the PC side.
+
+## Hardware (all fixed, don't make the script generic)
+
+| Part | IDs / driver | Notes |
+|---|---|---|
+| Odroid C2 | Amlogic S905 (`meson-gxbb`), 2 GB, Mali-450 (lima, GLES 2.0 only) | Weak GPU; Chromium mostly software-renders. 4× USB 2.0. |
+| TP-Link UB500 | `2357:0604`, RTL8761BU, btusb/btrtl, `firmware-realtek` | Always `hci0` (C2 has no onboard BT) |
+| TP-Link TL-WN821N, **RT5572 version** | `148f:5572`, `rt2800usb`, `firmware-misc-nonfree` (`rt2870.bin`) | Dual-band; must use **5 GHz** to avoid fighting BT. Power-save disabled by udev rule. |
+| MAGEX 10.1" touch monitor + case | HDMI + USB HID touch | Resolution not yet confirmed (1280×800 or 1920×1200) |
+| JVC KD-SX38MBT | BT MAC `88:E0:34:B7:98:6C` | Phone app "JVC Remote" uses SPP; protocol undocumented |
+
+## Repo layout
+
+- `install.sh`: the whole installer, idempotent, run as root. `--check` prints a health report. It installs itself as `/usr/local/sbin/odroid-ha-install` (which re-clones the latest repo and re-applies) and adds `odroid-ha-check`.
+- `config/odroid-ha.conf.example`: all settings. The live copy is `/etc/odroid-ha/odroid-ha.conf` (or `/boot/odroid-ha.conf` is picked up on first install).
+- `kiosk/kiosk-session.sh`: the X session. It re-execs itself under `dbus-run-session`, sets up xrandr and the touch matrix, starts the AT-SPI bus and Onboard, waits for HA, then runs Chromium in a restart loop.
+- `dietpi/`: `dietpi.txt.settings` and `Automation_Custom_Script.sh` for hands-off first boot.
+- `jvc/jvc-probe.py`: RFCOMM `scan` / `listen` / `send`. `jvc/README.md` covers the capture and replay workflow.
+
+## Key decisions (don't undo without asking)
+
+- **DietPi, not Armbian.** DietPi-Autostart must stay on **0 (Console)**. `install.sh` owns tty1 via `getty@tty1.service.d/zz-odroid-ha-kiosk.conf`.
+- **Our own kiosk, not DietPi's Chromium autostart (index 11)**, so flags, the keyboard and the restart loop stay under our control.
+- **bt-proxy native via uv, not Docker**, to save RAM on a 2 GB board.
+- **On-screen keyboard = Onboard via AT-SPI.** Auto-show needs all of these together:
+  - a session D-Bus
+  - `at-spi-bus-launcher`
+  - `libatk-adaptor`, `GTK_MODULES=gail:atk-bridge`, `gir1.2-atspi-2.0`
+  - Chromium `--force-renderer-accessibility`
+  - `toolkit-accessibility=true`
+
+  Onboard settings are **system dconf defaults** in `/etc/dconf/db/odroidha.d/00-onboard` (profile `/etc/dconf/profile/user`), with `force-to-top` (no WM) and `touch-input='none'`. Chrome-extension keyboards were rejected: HA inputs live in shadow DOM, and the old MV2 extensions are dead. Adam's earlier DietPi kiosk attempt failed on exactly this keyboard, so treat it as important.
+- No window manager. Chromium runs fullscreen under bare Xorg (`xserver-xorg-legacy`, `Xwrapper.config` `allowed_users=console`).
+
+## Status (as of 2026-11-10)
+
+- Code is written and pushed, but **not yet verified on the real hardware.** The first boot of DietPi on the C2 happened 2026-11-09/10.
+- Expect to debug on first run:
+  - `firmware-misc-nonfree` availability in DietPi's apt sources
+  - Chromium on lima (fallback `CHROMIUM_EXTRA_FLAGS="--disable-gpu"`)
+  - the touch matrix after rotation
+  - which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel
+  - whether `uv sync` finds a suitable Python on trixie
+
+## Next work
+
+1. **First-install debugging.** SSH to the Odroid (`root@<odroid-ip>`), run `install.sh` and `odroid-ha-check`, fix what breaks, and commit fixes back here.
+2. **Home Assistant side.**
+   - ESPHome integration → host `<odroid-ip>`, port 6053
+   - HA user `kiosk` + `trusted_networks` for the Odroid's IP (see README)
+   - HACS kiosk-mode
+3. **JVC capture.** Adam's phone is a Samsung SM-S938U1 with JVC Remote. On the PC:
+   - turn on the HCI snoop log (`adb shell settings put global bluetooth_btsnoop_default_mode full` + Bluetooth off/on)
+   - watch `adb logcat` while Adam presses buttons one at a time, noting the order
+   - `adb bugreport` → `btsnoop_hci.log` → Wireshark `btrfcomm || btspp`
+   - replay with `jvc-probe.py send`
+
+   The phone also has APK Extractor if decompiling JVC Remote (jadx) is faster.
+4. **`jvc2mqtt` bridge.** A Python systemd service on the Odroid that holds the RFCOMM link and maps MQTT topics to commands, with MQTT Discovery. It shares the UB500 with bt-proxy through BlueZ. Add a second BT dongle only if Classic + BLE scanning on one adapter proves flaky.
+
+Planning notes also live in the claude.ai Project "ODroid C2 - home assistant".
+
+## Conventions
+
+- Shell scripts must pass `shellcheck -S warning` and `bash -n`. Keep `install.sh` idempotent and re-runnable.
+- LF line endings (enforced by `.gitattributes`). Adam edits on Windows.
+- New settings go in `config/odroid-ha.conf.example` **and** the README settings table, with safe defaults in the scripts (`${VAR:-default}`).
+- Don't add hardware auto-detection or other boards. This repo targets exactly the hardware above.
