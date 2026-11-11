@@ -26,16 +26,25 @@ import time
 CONF = "/etc/odroid-ha/odroid-ha.conf"
 
 
-def conf_mac():
+def conf_value(key, pattern):
     try:
         with open(CONF) as f:
             for line in f:
-                m = re.match(r'\s*JVC_MAC="?([0-9A-Fa-f:]{17})"?', line)
+                m = re.match(r'\s*' + key + r'="?(' + pattern + r')"?', line)
                 if m:
                     return m.group(1)
     except OSError:
         pass
     return None
+
+
+def conf_mac():
+    return conf_value("JVC_MAC", r"[0-9A-Fa-f:]{17}")
+
+
+def conf_channel():
+    ch = conf_value("JVC_CHANNEL", r"\d+")
+    return int(ch) if ch else None
 
 
 def connect(mac, channel, timeout=8.0):
@@ -57,6 +66,9 @@ def read_for(s, seconds):
             data = s.recv(1024)
         except socket.timeout:
             continue
+        except OSError as e:
+            print(f"<< link dropped by receiver ({e.strerror or e})")
+            return False
         if not data:
             print("<< link closed by receiver")
             return False
@@ -108,14 +120,16 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("scan")
     l = sub.add_parser("listen")
-    l.add_argument("--channel", type=int, required=True)
+    l.add_argument("--channel", type=int, default=conf_channel(), help="default: JVC_CHANNEL from config")
     sd = sub.add_parser("send")
-    sd.add_argument("--channel", type=int, required=True)
+    sd.add_argument("--channel", type=int, default=conf_channel(), help="default: JVC_CHANNEL from config")
     sd.add_argument("--send", action="append", required=True, help="hex bytes, e.g. 'aa 55 01'")
     sd.add_argument("--wait", type=float, default=1.5, help="seconds to read after each send")
     a = p.parse_args()
     if not a.mac:
         sys.exit("No MAC: pass --mac or set JVC_MAC in " + CONF)
+    if a.cmd in ("listen", "send") and not a.channel:
+        sys.exit("No channel: pass --channel or set JVC_CHANNEL in " + CONF)
     {"scan": cmd_scan, "listen": cmd_listen, "send": cmd_send}[a.cmd](a)
 
 

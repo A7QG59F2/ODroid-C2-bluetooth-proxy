@@ -10,6 +10,20 @@ The command bytes aren't published anywhere. The plan:
 2. **Replay** those bytes from the Odroid with `jvc-probe.py`.
 3. **Build the bridge** (`jvc2mqtt`), which turns the receiver into Home Assistant entities over MQTT.
 
+## Findings so far (2026-11-10)
+
+- Pairing works with `bluetoothctl` as below. After pairing, the Odroid shows up in the radio's **ANDROID LIST**.
+- `scan` found open RFCOMM channels **7, 9 and 16**. **Channel 16 is the JVC Remote link.**
+- Once connected on ch 16, the radio sends this frame every **~2 s**:
+  ```
+  7e 0b 01 50 a4 3b 02 00 00 01 00 00 88 59 7c
+  ```
+  - starts `0x7E` and ends `0x7C`
+  - byte 2 (`0x0B` = 11) matches the 11 bytes `01 … 88` that follow it
+  - the byte before `0x7C` (`0x59`) is probably a checksum; it isn't a plain sum, XOR or CRC-16 of the obvious ranges
+- If nothing answers, the radio **drops the link after ~20 s** (`Connection reset by peer`). That looks like a heartbeat/poll that the app has to reply to. The phone capture will show the reply, and the bridge must send it on the same schedule.
+- Channels 7 and 9 are most likely hands-free (HFP) and another profile. Not needed.
+
 ## 1. Pair the Odroid with the receiver
 
 Turn the **phone's Bluetooth off** first, because the receiver only accepts one remote at a time.

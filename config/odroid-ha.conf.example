@@ -81,3 +81,5 @@ WIFI_DISABLE_POWERSAVE="1"
 # once the JVC Remote command bytes have been captured. Needs the UB500.
 ENABLE_JVC_TOOLS="0"
 JVC_MAC="88:E0:34:B7:98:6C"
+# RFCOMM channel of the JVC Remote (SPP) service. Found with jvc-probe.py scan/listen.
+JVC_CHANNEL="16"

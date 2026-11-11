@@ -165,6 +165,7 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `WIFI_COUNTRY` / `WIFI_5GHZ_ONLY` | `US` / `1` | Regulatory domain; stay off 2.4 GHz |
 | `WIFI_DISABLE_POWERSAVE` | `1` | Keep RT5572 awake |
 | `JVC_MAC` | `88:E0:34:B7:98:6C` | KD-SX38MBT |
+| `JVC_CHANNEL` | `16` | RFCOMM channel of the JVC Remote (SPP) service |
 
 ## Troubleshooting
 
