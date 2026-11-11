@@ -4,11 +4,12 @@ Context for Claude Code working in this repo. Read this first; the README has th
 
 ## What this project is
 
-One **DietPi** install on an **Odroid C2** that is, at the same time:
+One **DietPi** install on an **Odroid C2** that is, at the same time (each part optional, see below):
 
-1. a **Home Assistant Bluetooth proxy**: `denvera/bt-proxy` runs natively (uv venv in `/opt/bt-proxy`) as `bt-proxy.service`, ESPHome Native API on port 6053, plaintext only (no Noise encryption)
-2. a **dashboard kiosk** on a MAGEX 10.1" HDMI touch screen: tty1 autologin as user `kiosk` → `startx` → `kiosk/kiosk-session.sh` → Chromium `--kiosk`, with the **Onboard** on-screen keyboard
-3. groundwork for controlling a **JVC KD-SX38MBT** car receiver over Bluetooth Classic SPP (`jvc/`)
+1. a **dashboard kiosk** on a MAGEX 10.1" HDMI touch screen: tty1 autologin as user `kiosk` → `startx` → `kiosk/kiosk-session.sh` → Chromium `--kiosk`, with the **Onboard** on-screen keyboard
+2. a **controller for the JVC KD-SX38MBT** car receiver over Bluetooth Classic SPP (`jvc/`). The JVC Remote protocol is decoded: `jvc/PROTOCOL.md`; `jvc/jvc-probe.py talk` speaks it.
+3. a **Music Assistant speaker through the radio** (`radio/`, `ENABLE_RADIO_AUDIO`): Squeezelite → BlueALSA → A2DP → radio. `radio-link.sh` reconnects A2DP; `avrcp-player.py` registers a BlueZ media player that mirrors HA's `media_player.car_radio` (state, track) to the radio's display and sends the radio's buttons back to HA. It needs an HA long-lived token in `/etc/odroid-ha/ha-token` (mode 600, asked in `--configure`, never in the config).
+4. optionally a **Home Assistant Bluetooth proxy**: `denvera/bt-proxy` natively (uv venv in `/opt/bt-proxy`) as `bt-proxy.service`, ESPHome Native API on port 6053, plaintext only. **Off on the first board**: its constant BLE scanning makes outgoing BR/EDR connects from the RTL8761BU fail with "Host is down", so it can't coexist with the radio parts (an already-open link survives scanning).
 
 The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so PowerShell for anything on the PC side.
 
@@ -36,7 +37,7 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 
   Onboard settings are **system dconf defaults** in `/etc/dconf/db/odroidha.d/00-onboard` (profile `/etc/dconf/profile/user`), with `force-to-top` (no WM) and `touch-input='none'`. Chrome-extension keyboards were rejected: HA inputs live in shadow DOM, and the old MV2 extensions are dead. Adam's earlier DietPi kiosk attempt failed on exactly this keyboard, so treat it as important.
 - No window manager. Chromium runs fullscreen under bare Xorg (`xserver-xorg-legacy`, `Xwrapper.config` `allowed_users=console`).
-- **Several boards, optional parts.** Adam is flashing multiple C2s; some lack the UB500, the RT5572 or the JVC. Each part has an `ENABLE_*` switch (`ENABLE_BT_PROXY`, `ENABLE_WIFI`, `ENABLE_KIOSK`, `ENABLE_JVC_TOOLS`) chosen by the user through `--configure`, never by auto-detection. Switching a part off must undo what it set up, and `--check` only reports enabled parts. Proxy names default to `odroid-c2-<last 4 hex of eth0 MAC>` so boards don't collide in HA. The Wi-Fi password is only read from the terminal and stored as the derived 64-hex key; never write plaintext anywhere.
+- **Several boards, optional parts.** Adam is flashing multiple C2s; some lack the UB500, the RT5572 or the JVC. Each part has an `ENABLE_*` switch (`ENABLE_BT_PROXY`, `ENABLE_WIFI`, `ENABLE_KIOSK`, `ENABLE_JVC_TOOLS`) plus `ENABLE_RADIO_AUDIO`, chosen by the user through `--configure`, never by auto-detection. Switching a part off must undo what it set up, and `--check` only reports enabled parts. Proxy names default to `odroid-c2-<last 4 hex of eth0 MAC>` so boards don't collide in HA. The Wi-Fi password is only read from the terminal and stored as the derived 64-hex key; never write plaintext anywhere.
 
 ## Status (as of 2026-11-11)
 
@@ -48,19 +49,20 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
   - With no WM, Chromium needs an explicit `--window-size` or it only fills half the screen.
   - Chromium's GPU process fails on lima (it wants GLES 3) and falls back to software by itself; `--disable-gpu` hasn't been needed.
   - HA login page renders; Onboard auto-show docks it at the bottom. The floating button is off (now the repo default too).
-- **First board's network:** on Wi-Fi at **192.168.1.127** (SSID ABoy, 5 GHz only via `freq_list`, country US); it was .144 on Ethernet. install.sh manages it: `wpa_supplicant.conf` (derived PSK only) and `/etc/network/interfaces.d/wlan0.conf` (`metric 100`, so Ethernet wins while plugged in). `eth0` stays DietPi's `allow-hotplug` fallback, and `ignore_routes_with_linkdown=1` keeps a pulled cable from stranding the default route. This board keeps `ENABLE_JVC_TOOLS="1"` and `BT_PROXY_NAME="odroid-c2-btproxy"` in its live config.
+- **First board's network:** on Wi-Fi at **192.168.1.127** (SSID ABoy, 5 GHz only via `freq_list`, country US); it was .144 on Ethernet. install.sh manages it: `wpa_supplicant.conf` (derived PSK only) and `/etc/network/interfaces.d/wlan0.conf` (`metric 100`, so Ethernet wins while plugged in). `eth0` stays DietPi's `allow-hotplug` fallback, and `ignore_routes_with_linkdown=1` keeps a pulled cable from stranding the default route. Its live config: `ENABLE_BT_PROXY="0"`, `ENABLE_JVC_TOOLS="1"`, `ENABLE_RADIO_AUDIO="1"`, `JVC_MAC` set, `TIMEZONE="America/Indiana/Indianapolis"`.
+- **Radio audio verified** (2026-11-11): Music Assistant plays through the radio (player `Car-Radio`, HA `media_player.car_radio`, MA's Squeezelite provider added); A2DP comes back ~18 s after the radio returns. Keep test volume low.
+- `TIMEZONE` is asked in `--configure` because the radio's clock is set from the board (the probe sets it on every connect by default).
 - `iw reg set` drops the Wi-Fi link, so install.sh only sets the country when it differs and then waits for the link before network steps.
 - DietPi's SSH is Dropbear without SFTP: `scp` fails, so copy files with `ssh host 'cat > file' < file`. DietPi also masks `systemd-logind` (Xorg logs an error about it, harmless).
 - Still to check: the touch matrix after rotation, which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel, and the final `HA_URL` dashboard path (still the placeholder `/lovelace/0`).
 
 ## Next work
 
-1. **First-install debugging.** SSH to the Odroid (`root@<odroid-ip>`), run `install.sh` and `odroid-ha-check`, fix what breaks, and commit fixes back here.
-2. **Home Assistant side.**
-   - ESPHome integration → host `<odroid-ip>`, port 6053
+1. **AVRCP player on the radio**: confirm the display leaves STOP, shows the track, and the radio's buttons control Music Assistant.
+2. **Home Assistant side for the kiosk.**
    - HA user `kiosk` + `trusted_networks` for the Odroid's IP (see README)
    - HACS kiosk-mode
-3. **JVC capture and the `jvc2mqtt` bridge.** Plan and steps are in `jvc/CLAUDE.md`.
+3. **The `jvc2mqtt` bridge** (radio control from HA). Plan and open protocol points are in `jvc/CLAUDE.md` and `jvc/PROTOCOL.md`. It must share the radio with radio audio (SPP and A2DP on the same link work together).
 
 Planning notes also live in the claude.ai Project "ODroid C2 - home assistant".
 

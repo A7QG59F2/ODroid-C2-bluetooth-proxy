@@ -171,6 +171,8 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `RADIO_AUDIO_NAME` | `Car-Radio` | Player name in Music Assistant |
 | `RADIO_AUDIO_SERVER` | empty (auto) | Music Assistant host, if auto-discovery fails |
 | `RADIO_RECONNECT_SECONDS` | `15` | Retry interval while the radio is off |
+| `RADIO_HA_ENTITY` | empty (`media_player.<name>`) | HA media_player whose state and track the radio shows, and that its buttons control. Needs the HA token `--configure` asks for (kept in `/etc/odroid-ha/ha-token`) |
+| `HA_API_URL` | empty (from `HA_URL`) | Home Assistant base URL for the API, e.g. `http://192.168.1.3:8123` |
 
 ## Troubleshooting
 
