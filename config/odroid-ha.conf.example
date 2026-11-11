@@ -1,6 +1,13 @@
 # Odroid C2 – Home Assistant Bluetooth proxy + kiosk
-# Copy to /etc/odroid-ha/odroid-ha.conf (install.sh does this for you on first run)
-# and edit, then re-run:  sudo ./install.sh
+# Live copy: /etc/odroid-ha/odroid-ha.conf. A first install run from a terminal
+# asks which parts this board has and fills it in; ask again any time with
+#     sudo odroid-ha-install --configure
+# or edit it by hand and re-run  sudo ./install.sh
+# For a hands-off install, put an edited copy on the boot partition as
+# /boot/odroid-ha.conf (no questions are asked without a terminal).
+#
+# Each ENABLE_* switch can be turned off for boards without that part;
+# re-running the installer removes what a switched-off part had set up.
 #
 # Lines are plain shell assignments: KEY="value"  (no spaces around '=')
 
@@ -11,9 +18,11 @@ HA_URL="http://homeassistant.local:8123/lovelace/0"
 
 # ─── Bluetooth proxy (denvera/bt-proxy) ─────────────────────────────────────
 ENABLE_BT_PROXY="1"
-# Name shown in Home Assistant (lowercase, letters/numbers/dashes)
-BT_PROXY_NAME="odroid-c2-btproxy"
-BT_PROXY_FRIENDLY_NAME="Odroid C2 Bluetooth Proxy"
+# Name shown in Home Assistant (lowercase, letters/numbers/dashes). Must be
+# unique per board. Empty = odroid-c2-<last 4 hex of the Ethernet MAC>.
+BT_PROXY_NAME=""
+# Empty = "Odroid C2 Bluetooth Proxy <same 4 hex>"
+BT_PROXY_FRIENDLY_NAME=""
 # The C2 has no built-in Bluetooth, so the TP-Link UB500 is hci0.
 BT_ADAPTER="hci0"
 # Max simultaneous active BLE connections handled for HA
@@ -49,20 +58,26 @@ OSK_THEME="Droid"
 # Dock the keyboard at the bottom (or top) edge of the screen
 OSK_EDGE="bottom"
 # Small floating button that opens the keyboard by hand, for any field
-# where auto-show doesn't fire. 1 = show it.
-OSK_FLOATING_BUTTON="1"
+# where auto-show doesn't fire. 1 = show it, 0 = hidden (default).
+OSK_FLOATING_BUTTON="0"
 # How Onboard reads touches: none (touch acts as a mouse; most compatible),
 # single, or multi. If keys register twice or not at all, try another one.
 OSK_TOUCH_INPUT="none"
 
 # ─── Wi-Fi (TL-WN821N, Ralink RT5572, dual-band) ────────────────────────────
-# The install script only adds the firmware and turns off Wi-Fi power saving.
-# Join the network with:  dietpi-config → Network Options: Adapters → WiFi
-# Use the router's 5 GHz SSID so Wi-Fi doesn't fight the Bluetooth dongle.
+ENABLE_WIFI="1"
+# Network to join. Empty = install the driver only and leave networking alone.
+# The password is never stored here: --configure asks for it and saves only
+# the derived WPA key in /etc/wpa_supplicant/wpa_supplicant.conf. (A network
+# set up through dietpi-config is picked up and converted the same way.)
+WIFI_SSID=""
+WIFI_COUNTRY="US"
+# Use only the 5 GHz band, so Wi-Fi doesn't fight the Bluetooth dongle on 2.4 GHz
+WIFI_5GHZ_ONLY="1"
 WIFI_DISABLE_POWERSAVE="1"
 
 # ─── JVC KD-SX38MBT (Bluetooth Classic / SPP) ───────────────────────────────
 # Installs the probe tool in /opt/odroid-ha/jvc. The MQTT bridge comes later,
-# once the JVC Remote command bytes have been captured.
-ENABLE_JVC_TOOLS="1"
+# once the JVC Remote command bytes have been captured. Needs the UB500.
+ENABLE_JVC_TOOLS="0"
 JVC_MAC="88:E0:34:B7:98:6C"

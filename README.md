@@ -27,17 +27,40 @@ Put the UB500 on a short USB extension, away from the Wi-Fi dongle.
 1. Download the **DietPi Odroid C2** image from <https://dietpi.com/#download> and flash it with balenaEtcher (microSD or eMMC).
 2. Boot with **Ethernet** plugged in and finish DietPi's first-run setup (SSH: `root` / `dietpi`).
    When asked about autostart, leave it on **Console**.
-3. Run:
+3. Run (over SSH use `ssh -t` so it can ask questions):
    ```bash
    apt-get update && apt-get install -y git
    git clone https://github.com/A7QG59F2/ODroid-C2-bluetooth-proxy /opt/odroid-ha/src
    cd /opt/odroid-ha/src && ./install.sh
    ```
-4. Set your dashboard URL and anything else, then apply:
-   ```bash
-   nano /etc/odroid-ha/odroid-ha.conf     # HA_URL=...
-   ./install.sh
+4. The first run asks which parts this board has, then installs only those:
    ```
+   Home Assistant Bluetooth proxy (TP-Link UB500)? [Y/n]
+     Name in Home Assistant (lowercase, unique per board) [odroid-c2-07bc]
+   Wi-Fi (TL-WN821N, RT5572)? [Y/n]
+     Network name (SSID, empty = leave Wi-Fi unconfigured) []
+     Wi-Fi password for MyNetwork:            (not echoed, never stored in plain text)
+   Dashboard kiosk on the touch screen (MAGEX 10.1")? [Y/n]
+     Dashboard URL [http://homeassistant.local:8123/lovelace/0]
+   JVC KD-SX38MBT car receiver tools (needs the UB500)? [y/N]
+   ```
+
+### Several boards, and adding parts later
+
+Every board gets its own proxy name by default (`odroid-c2-` plus the end of its Ethernet MAC), so
+several C2s can sit in the same Home Assistant. To add or remove a part later, for example after
+plugging in a UB500, run the questions again. Enter keeps each current answer:
+
+```bash
+ssh -t root@<odroid-ip> odroid-ha-install --configure
+```
+
+Switching a part off removes what it set up (the bt-proxy service, the kiosk autologin, the JVC
+tool, our Wi-Fi config). `odroid-ha-check` only reports on the parts that are switched on.
+
+**Moving to Wi-Fi:** answer the Wi-Fi questions while still on Ethernet. The installer brings
+`wlan0` up next to Ethernet and prints its address; then unplug the cable. Ethernet stays
+configured as a fallback: it's preferred while plugged in, and Wi-Fi takes over when it isn't.
 
 ### Option 2: Hands-off first boot
 
@@ -45,14 +68,17 @@ Before the first boot, edit `dietpi.txt` on the card using [`dietpi/dietpi.txt.s
 DietPi then sets itself up, and the last step runs [`dietpi/Automation_Custom_Script.sh`](dietpi/Automation_Custom_Script.sh), which clones this repo and runs `install.sh`.
 
 - The URL form of `AUTO_SETUP_CUSTOM_SCRIPT_EXEC` only works while this repo is **public**. Otherwise copy the script to the boot partition as `Automation_Custom_Script.sh`.
-- To skip editing the config afterwards, copy your edited [`config/odroid-ha.conf.example`](config/odroid-ha.conf.example) to the boot partition as **`odroid-ha.conf`**.
+- First boot has no terminal, so nothing is asked. To choose the parts, copy your edited [`config/odroid-ha.conf.example`](config/odroid-ha.conf.example) to the boot partition as **`odroid-ha.conf`**, or run `odroid-ha-install --configure` afterwards.
+- For Wi-Fi on first boot, use DietPi's `dietpi-wifi.txt` and set `WIFI_SSID` in `odroid-ha.conf` to the same network. install.sh then converts DietPi's plain-text key to the derived WPA key and adds the 5 GHz and country settings. The plain-text copy in `dietpi-wifi.txt` on the boot partition is DietPi's; blank it once the board is online.
 - If Windows can't see a boot partition on the flashed card, use Option 1.
 
 ## What `install.sh` does
 
-1. Installs the firmware (`firmware-realtek`, `firmware-mediatek` for the RT5572, `firmware-misc-nonfree`), plus BlueZ, Xorg, Chromium and `xinput`.
+Each step runs only for the parts that are switched on.
+
+1. Installs the firmware (`firmware-realtek` for the UB500; `firmware-mediatek` + `firmware-misc-nonfree` for the RT5572), plus BlueZ, Xorg, Chromium and `xinput`.
 2. Unblocks Bluetooth (removes DietPi's Bluetooth blacklist if set), sets BlueZ `AutoEnable=true` and powers on the UB500.
-3. Turns off RT5572 Wi-Fi power saving (udev rule), so the proxy doesn't drop off the network.
+3. Wi-Fi: sets the country, turns off RT5572 power saving (udev rule) so the proxy doesn't drop off the network, and, if `WIFI_SSID` is set, joins it (5 GHz only by default) with Ethernet kept as a fallback.
 4. Installs **bt-proxy** in `/opt/bt-proxy` using `uv`, then creates and starts **`bt-proxy.service`** (port **6053**, mDNS-advertised).
 5. Creates user **`kiosk`** and sets up autologin on tty1 → `startx` → `/opt/odroid-ha/kiosk-session.sh`, which:
    - applies screen mode and rotation, and rotates touch to match
@@ -61,7 +87,7 @@ DietPi then sets itself up, and the last step runs [`dietpi/Automation_Custom_Sc
    - starts the on-screen keyboard (Onboard) with its accessibility bus
    - waits for HA, then runs Chromium `--kiosk` in a restart loop
 6. Installs `/opt/odroid-ha/jvc/jvc-probe.py`.
-7. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply).
+7. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply; `--configure` to re-answer the questions).
 
 It's safe to re-run as often as you like. Install log: `/var/log/odroid-ha-install.log`.
 
@@ -93,8 +119,8 @@ Make a dashboard laid out for the panel (1920×1200 landscape).
 ## On-screen keyboard
 
 Uses **Onboard**. Tap any text field in Home Assistant (search, login, a text helper, the Assist box) and the
-keyboard slides up from the bottom. It hides again when the field loses focus. A small floating button stays on
-screen so you can open it by hand if auto-show ever misses.
+keyboard slides up from the bottom. It hides again when the field loses focus. If auto-show ever misses a field,
+`OSK_FLOATING_BUTTON="1"` adds a small floating button to open it by hand (off by default).
 
 Auto-show in a bare X kiosk usually fails in silence. These are the pieces this setup puts in place for it to work:
 
@@ -113,7 +139,7 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 **If the keyboard misbehaves:**
 
 - **Never pops up:** run `odroid-ha-check`. "keyboard" and "a11y bus" should both say running.
-  Check `~kiosk/.onboard.log` for `AT-SPI` errors. The floating button still works as a fallback.
+  Check `~kiosk/.onboard.log` for `AT-SPI` errors. Turn on `OSK_FLOATING_BUTTON` as a fallback.
 - **Keys type twice, or not at all:** set `OSK_TOUCH_INPUT` to `single` or `multi` (default `none` treats touch as a mouse).
 - **Covers the field you're typing in:** set `OSK_EDGE="top"`, or keep text inputs near the top of the dashboard.
 - **Turn it off:** `ONSCREEN_KEYBOARD="0"`.
@@ -123,8 +149,9 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | Key | Default | Meaning |
 |---|---|---|
 | `HA_URL` | `http://homeassistant.local:8123/lovelace/0` | Page the kiosk opens |
-| `ENABLE_BT_PROXY` / `ENABLE_KIOSK` / `ENABLE_JVC_TOOLS` | `1` | Turn each part on or off |
-| `BT_PROXY_NAME`, `BT_PROXY_FRIENDLY_NAME` | `odroid-c2-btproxy` | Name in HA |
+| `ENABLE_BT_PROXY` / `ENABLE_WIFI` / `ENABLE_KIOSK` | `1` | Turn each part on or off |
+| `ENABLE_JVC_TOOLS` | `0` | JVC probe tool (needs the UB500) |
+| `BT_PROXY_NAME`, `BT_PROXY_FRIENDLY_NAME` | `odroid-c2-<mac4>` | Name in HA; must be unique per board |
 | `BT_ADAPTER` / `BT_MAX_CONNECTIONS` | `hci0` / `3` | Which dongle; active-connection slots |
 | `SCREEN_ROTATION` | `normal` | `normal`/`left`/`right`/`inverted` (touch follows) |
 | `SCREEN_MODE` | auto | Force a mode, e.g. `1920x1200` (the panel's native mode) |
@@ -133,7 +160,9 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `CHROMIUM_EXTRA_FLAGS` | empty | Add `--disable-gpu` if the page is blank/white |
 | `ONSCREEN_KEYBOARD` | `1` | Onboard keyboard with auto-show |
 | `OSK_LAYOUT` / `OSK_THEME` / `OSK_EDGE` | `Compact` / `Droid` / `bottom` | Keyboard look and position |
-| `OSK_FLOATING_BUTTON` / `OSK_TOUCH_INPUT` | `1` / `none` | Manual-open button; touch handling |
+| `OSK_FLOATING_BUTTON` / `OSK_TOUCH_INPUT` | `0` / `none` | Manual-open button; touch handling |
+| `WIFI_SSID` | empty | Network to join (password via `--configure`, never stored in plain text) |
+| `WIFI_COUNTRY` / `WIFI_5GHZ_ONLY` | `US` / `1` | Regulatory domain; stay off 2.4 GHz |
 | `WIFI_DISABLE_POWERSAVE` | `1` | Keep RT5572 awake |
 | `JVC_MAC` | `88:E0:34:B7:98:6C` | KD-SX38MBT |
 

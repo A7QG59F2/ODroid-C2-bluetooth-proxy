@@ -7,11 +7,15 @@ AUTO_SETUP_GLOBAL_PASSWORD=change-me-now
 AUTO_SETUP_TIMEZONE=America/New_York
 AUTO_SETUP_LOCALE=en_US.UTF-8
 AUTO_SETUP_KEYBOARD_LAYOUT=us
+# Give each board its own hostname when flashing several
 AUTO_SETUP_NET_HOSTNAME=odroid-kiosk
 
-# Network: Ethernet is best. For Wi-Fi (TL-WN821N / RT5572) set WIFI_ENABLED=1,
-# ETHERNET_ENABLED=0, and put your 5 GHz SSID + key in dietpi-wifi.txt
-# (aWIFI_SSID[0]= / aWIFI_KEY[0]=). If both are 1, DietPi uses Wi-Fi.
+# Network: easiest is to boot on Ethernet and answer the Wi-Fi questions in
+# `odroid-ha-install --configure` (password stored only as the derived key).
+# Fully hands-off Wi-Fi: set WIFI_ENABLED=1, put the SSID + key in
+# dietpi-wifi.txt (aWIFI_SSID[0]= / aWIFI_KEY[0]=), and set the same
+# WIFI_SSID in /boot/odroid-ha.conf. install.sh converts the key to the
+# derived form; blank aWIFI_KEY in dietpi-wifi.txt once the board is online.
 AUTO_SETUP_NET_ETHERNET_ENABLED=1
 AUTO_SETUP_NET_WIFI_ENABLED=0
 AUTO_SETUP_NET_WIFI_COUNTRY_CODE=US

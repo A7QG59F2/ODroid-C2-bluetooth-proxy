@@ -24,7 +24,7 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 
 ## Repo layout
 
-- `install.sh`: the whole installer, idempotent, run as root. `--check` prints a health report. It installs itself as `/usr/local/sbin/odroid-ha-install` (which re-clones the latest repo and re-applies) and adds `odroid-ha-check`.
+- `install.sh`: the whole installer, idempotent, run as root. `--check` prints a health report. `--configure` asks which parts the board has (bt-proxy, Wi-Fi + SSID/password, kiosk + URL/keyboard, JVC) and writes the answers into the config; a first install from a terminal asks automatically, and a run without a terminal (DietPi first boot) never asks. It installs itself as `/usr/local/sbin/odroid-ha-install` (which re-clones the latest repo and re-applies, passing flags through) and adds `odroid-ha-check`.
 - `config/odroid-ha.conf.example`: all settings. The live copy is `/etc/odroid-ha/odroid-ha.conf` (or `/boot/odroid-ha.conf` is picked up on first install).
 - `kiosk/kiosk-session.sh`: the X session. It re-execs itself under `dbus-run-session`, sets up xrandr and the touch matrix, starts the AT-SPI bus and Onboard, waits for HA, then runs Chromium in a restart loop.
 - `dietpi/`: `dietpi.txt.settings` and `Automation_Custom_Script.sh` for hands-off first boot.
@@ -44,6 +44,7 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 
   Onboard settings are **system dconf defaults** in `/etc/dconf/db/odroidha.d/00-onboard` (profile `/etc/dconf/profile/user`), with `force-to-top` (no WM) and `touch-input='none'`. Chrome-extension keyboards were rejected: HA inputs live in shadow DOM, and the old MV2 extensions are dead. Adam's earlier DietPi kiosk attempt failed on exactly this keyboard, so treat it as important.
 - No window manager. Chromium runs fullscreen under bare Xorg (`xserver-xorg-legacy`, `Xwrapper.config` `allowed_users=console`).
+- **Several boards, optional parts.** Adam is flashing multiple C2s; some lack the UB500, the RT5572 or the JVC. Each part has an `ENABLE_*` switch (`ENABLE_BT_PROXY`, `ENABLE_WIFI`, `ENABLE_KIOSK`, `ENABLE_JVC_TOOLS`) chosen by the user through `--configure`, never by auto-detection. Switching a part off must undo what it set up, and `--check` only reports enabled parts. Proxy names default to `odroid-c2-<last 4 hex of eth0 MAC>` so boards don't collide in HA. The Wi-Fi password is only read from the terminal and stored as the derived 64-hex key; never write plaintext anywhere.
 
 ## Status (as of 2026-11-11)
 
@@ -54,8 +55,9 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
   - Xorg needs `/etc/X11/xorg.conf.d/10-odroid-ha-meson.conf` (kmsdev = meson-drm by-path, `AutoAddGPU` off). Without it, the two DRM devices (meson-drm card0, lima card1) make X die with "Cannot run in framebuffer mode".
   - With no WM, Chromium needs an explicit `--window-size` or it only fills half the screen.
   - Chromium's GPU process fails on lima (it wants GLES 3) and falls back to software by itself; `--disable-gpu` hasn't been needed.
-  - HA login page renders; Onboard auto-show docks it at the bottom. Adam turned the floating button off (`OSK_FLOATING_BUTTON="0"` in the live config).
-- **Network:** Wi-Fi is primary at **192.168.1.127** (SSID ABoy, 5 GHz only via `freq_list`, country US); it was .144 on Ethernet. `eth0` stays `allow-hotplug` as a fallback, and `ignore_routes_with_linkdown=1` (set by install.sh) keeps a pulled cable from stranding the default route. `wpa_supplicant.conf` holds only the derived PSK (no plaintext in `/boot/dietpi-wifi.txt`); `/etc/network/interfaces.d/wlan0.conf` brings it up.
+  - HA login page renders; Onboard auto-show docks it at the bottom. The floating button is off (now the repo default too).
+- **First board's network:** on Wi-Fi at **192.168.1.127** (SSID ABoy, 5 GHz only via `freq_list`, country US); it was .144 on Ethernet. install.sh manages it: `wpa_supplicant.conf` (derived PSK only) and `/etc/network/interfaces.d/wlan0.conf` (`metric 100`, so Ethernet wins while plugged in). `eth0` stays DietPi's `allow-hotplug` fallback, and `ignore_routes_with_linkdown=1` keeps a pulled cable from stranding the default route. This board keeps `ENABLE_JVC_TOOLS="1"` and `BT_PROXY_NAME="odroid-c2-btproxy"` in its live config.
+- `iw reg set` drops the Wi-Fi link, so install.sh only sets the country when it differs and then waits for the link before network steps.
 - DietPi's SSH is Dropbear without SFTP: `scp` fails, so copy files with `ssh host 'cat > file' < file`. DietPi also masks `systemd-logind` (Xorg logs an error about it, harmless).
 - Still to check: the touch matrix after rotation, which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel, and the final `HA_URL` dashboard path (still the placeholder `/lovelace/0`).
 
