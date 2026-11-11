@@ -165,8 +165,12 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `WIFI_SSID` | empty | Network to join (password via `--configure`, never stored in plain text) |
 | `WIFI_COUNTRY` / `WIFI_5GHZ_ONLY` | `US` / `1` | Regulatory domain; stay off 2.4 GHz |
 | `WIFI_DISABLE_POWERSAVE` | `1` | Keep RT5572 awake |
-| `JVC_MAC` | `88:E0:34:B7:98:6C` | KD-SX38MBT |
+| `JVC_MAC` | empty | The radio's Bluetooth address (asked by `--configure`) |
 | `JVC_CHANNEL` | `16` | RFCOMM channel of the JVC Remote (SPP) service |
+| `ENABLE_RADIO_AUDIO` | `0` | Music Assistant player that plays through the radio (Squeezelite → BlueALSA → A2DP) |
+| `RADIO_AUDIO_NAME` | `Car-Radio` | Player name in Music Assistant |
+| `RADIO_AUDIO_SERVER` | empty (auto) | Music Assistant host, if auto-discovery fails |
+| `RADIO_RECONNECT_SECONDS` | `15` | Retry interval while the radio is off |
 
 ## Troubleshooting
 

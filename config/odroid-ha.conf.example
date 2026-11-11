@@ -84,9 +84,23 @@ WIFI_5GHZ_ONLY="1"
 WIFI_DISABLE_POWERSAVE="1"
 
 # ─── JVC KD-SX38MBT (Bluetooth Classic / SPP) ───────────────────────────────
-# Installs the probe tool in /opt/odroid-ha/jvc. The MQTT bridge comes later,
-# once the JVC Remote command bytes have been captured. Needs the UB500.
+# Installs the probe tool in /opt/odroid-ha/jvc (protocol: jvc/PROTOCOL.md).
+# The MQTT bridge comes later. Needs the UB500.
 ENABLE_JVC_TOOLS="0"
-JVC_MAC="88:E0:34:B7:98:6C"
+# The radio's Bluetooth address (bluetoothctl devices). Also used by radio audio.
+JVC_MAC=""
 # RFCOMM channel of the JVC Remote (SPP) service. Found with jvc-probe.py scan/listen.
 JVC_CHANNEL="16"
+
+# ─── Radio audio (Music Assistant player through the JVC radio) ─────────────
+# Squeezelite → BlueALSA → Bluetooth (A2DP) → the radio. Music Assistant finds
+# the player once its "Squeezelite (slimproto)" provider is added. Needs the
+# UB500 and JVC_MAC; works best with ENABLE_BT_PROXY="0" (BLE scanning blocks
+# connecting to the radio).
+ENABLE_RADIO_AUDIO="0"
+# Player name in Music Assistant (no spaces)
+RADIO_AUDIO_NAME="Car-Radio"
+# Music Assistant host, only if auto-discovery doesn't find it. Empty = auto.
+RADIO_AUDIO_SERVER=""
+# How often to try reconnecting the radio's audio while it's off (seconds)
+RADIO_RECONNECT_SECONDS="15"

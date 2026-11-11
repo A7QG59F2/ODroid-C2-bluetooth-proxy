@@ -43,6 +43,7 @@ load_conf() {
     BOARD_ID=$( { tr -d ':\n' </sys/class/net/eth0/address | tail -c 4; } 2>/dev/null || true)
     BOARD_ID=${BOARD_ID:-0000}
     : "${ENABLE_BT_PROXY:=1}" "${ENABLE_WIFI:=1}" "${ENABLE_KIOSK:=1}" "${ENABLE_JVC_TOOLS:=0}"
+    : "${ENABLE_RADIO_AUDIO:=0}" "${RADIO_AUDIO_NAME:=Car-Radio}" "${RADIO_AUDIO_SERVER:=}" "${JVC_MAC:=}"
     : "${BT_PROXY_NAME:=odroid-c2-$BOARD_ID}"
     : "${BT_PROXY_FRIENDLY_NAME:=Odroid C2 Bluetooth Proxy $BOARD_ID}"
     : "${WIFI_SSID:=}" "${WIFI_COUNTRY:=US}" "${WIFI_5GHZ_ONLY:=1}" "${WIFI_DISABLE_POWERSAVE:=1}"
@@ -52,21 +53,22 @@ load_conf() {
 }
 on() { [ "${!1:-0}" = "1" ]; }
 onoff() { on "$1" && echo on || echo off; }
+bt_needed() { on ENABLE_BT_PROXY || on ENABLE_JVC_TOOLS || on ENABLE_RADIO_AUDIO; }
 
 # ─── Health report ────────────────────────────────────────────────────────────
 check() {
     echo "── Features ──"
-    echo "  bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)   jvc: $(onoff ENABLE_JVC_TOOLS)"
+    echo "  bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)   jvc: $(onoff ENABLE_JVC_TOOLS)   radio-audio: $(onoff ENABLE_RADIO_AUDIO)"
     echo "── Hardware ──"
     lsusb 2>/dev/null | grep -Ei '2357:0604|148f:5572|0bda|touch|hid' | sed 's/^/  /' || echo "  (lsusb shows none of the expected devices)"
-    if on ENABLE_BT_PROXY || on ENABLE_JVC_TOOLS; then
+    if bt_needed; then
         echo "  UB500 (2357:0604):  $(lsusb 2>/dev/null | grep -qi 2357:0604 && echo found || echo MISSING)"
     fi
     if on ENABLE_WIFI; then
         echo "  RT5572 (148f:5572): $(lsusb 2>/dev/null | grep -qi 148f:5572 && echo found || echo MISSING)"
         echo "  RT5572 firmware:    $([ -f /lib/firmware/rt2870.bin ] && echo present || echo 'MISSING (apt install firmware-mediatek)')"
     fi
-    if on ENABLE_BT_PROXY || on ENABLE_JVC_TOOLS; then
+    if bt_needed; then
         echo "── Bluetooth ──"
         rfkill list bluetooth 2>/dev/null | sed 's/^/  /' || true
         bluetoothctl show 2>/dev/null | grep -E 'Controller|Powered|Name' | sed 's/^/  /' || echo "  bluetoothctl: no controller"
@@ -81,8 +83,15 @@ check() {
         fi
     fi
     echo "── Services ──"
-    if on ENABLE_BT_PROXY || on ENABLE_JVC_TOOLS; then
+    if bt_needed; then
         printf "  %-10s %s\n" bluetooth "$(systemctl is-active bluetooth 2>/dev/null || true)"
+    fi
+    if on ENABLE_RADIO_AUDIO; then
+        printf "  %-10s %s\n" bluealsa "$(systemctl is-active bluealsa 2>/dev/null || true)"
+        printf "  %-10s %s\n" radio-link "$(systemctl is-active odroid-ha-radio-link 2>/dev/null || true)"
+        printf "  %-10s %s\n" "radio A2DP" "$(bluealsa-aplay -L 2>/dev/null | grep -qi "DEV=$JVC_MAC,PROFILE=a2dp" && echo connected || echo 'not connected (radio off or out of range?)')"
+        printf "  %-10s %s\n" squeezelite "$(systemctl is-active squeezelite 2>/dev/null || true)"
+        printf "  %-10s %s\n" "MA server" "$(ss -tn 2>/dev/null | grep -q ':3483 ' && echo connected || echo 'not connected (add the Squeezelite provider in Music Assistant)')"
     fi
     if on ENABLE_BT_PROXY; then
         printf "  %-10s %s\n" bt-proxy "$(systemctl is-active bt-proxy 2>/dev/null || true)"
@@ -248,6 +257,24 @@ configure() {
         on ONSCREEN_KEYBOARD && ask_yn OSK_FLOATING_BUTTON "  Floating button to open the keyboard by hand?"
     fi
     ask_yn ENABLE_JVC_TOOLS "JVC KD-SX38MBT car receiver tools (needs the UB500)?"
+    ask_yn ENABLE_RADIO_AUDIO "Play Music Assistant through the JVC radio over Bluetooth (needs the UB500)?"
+    if on ENABLE_RADIO_AUDIO; then
+        ask_str RADIO_AUDIO_NAME "  Player name in Music Assistant (no spaces)"
+        RADIO_AUDIO_NAME=$(echo "$RADIO_AUDIO_NAME" | tr ' ' '-' | tr -cd 'A-Za-z0-9._-')
+        RADIO_AUDIO_NAME=${RADIO_AUDIO_NAME:-Car-Radio}
+        set_conf RADIO_AUDIO_NAME "$RADIO_AUDIO_NAME"
+    fi
+    if on ENABLE_JVC_TOOLS || on ENABLE_RADIO_AUDIO; then
+        while true; do
+            ask_str JVC_MAC "  Radio's Bluetooth address (bluetoothctl devices)"
+            [[ $JVC_MAC =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] && break
+            warn "That isn't a Bluetooth address like 88:E0:34:B7:98:6C."
+        done
+    fi
+    if on ENABLE_BT_PROXY && on ENABLE_RADIO_AUDIO; then
+        warn "The BLE proxy's constant scanning stops the dongle from connecting to the radio."
+        warn "Radio audio only reconnects reliably with the proxy off."
+    fi
     echo
     say "Saved to $CONF. Change it any time with:  odroid-ha-install --configure"
     echo
@@ -284,11 +311,15 @@ if [ "${1:-}" = "--configure" ] || { [ "$NEW_CONF" = 1 ] && [ -t 0 ]; }; then
 elif [ "$NEW_CONF" = 1 ]; then
     warn "Created $CONF with defaults. Run  odroid-ha-install --configure  to choose this board's parts."
 fi
-BT_NEEDED=0; { on ENABLE_BT_PROXY || on ENABLE_JVC_TOOLS; } && BT_NEEDED=1
+BT_NEEDED=0; bt_needed && BT_NEEDED=1
+if on ENABLE_RADIO_AUDIO && [ -z "$JVC_MAC" ]; then
+    warn "ENABLE_RADIO_AUDIO is on but JVC_MAC is empty; radio audio is skipped. Set it with  odroid-ha-install --configure"
+    ENABLE_RADIO_AUDIO=0
+fi
 
 exec > >(tee -a "$LOG") 2>&1
 say "Install started $(date)  (log: $LOG)"
-say "Features: bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK), jvc $(onoff ENABLE_JVC_TOOLS)"
+say "Features: bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK), jvc $(onoff ENABLE_JVC_TOOLS), radio-audio $(onoff ENABLE_RADIO_AUDIO)"
 
 # Basic sanity: is this an Odroid C2?
 if ! grep -qi 'odroid-c2\|odroid c2\|meson-gxbb' /proc/device-tree/model /proc/device-tree/compatible 2>/dev/null; then
@@ -329,6 +360,7 @@ if [ "${#FW[@]}" -gt 0 ]; then
 fi
 [ "$BT_NEEDED" = 1 ] && $APT install bluez
 on ENABLE_WIFI && $APT install wpasupplicant
+on ENABLE_RADIO_AUDIO && $APT install bluez-alsa-utils libasound2-plugin-bluez alsa-utils squeezelite
 
 if on ENABLE_KIOSK; then
     $APT install --no-install-recommends \
@@ -624,7 +656,57 @@ else
     rm -rf "$APP_DIR/jvc"
 fi
 
-# ─── 7. Convenience commands ──────────────────────────────────────────────────
+# ─── 7. Radio audio: Music Assistant player through the JVC radio ────────────
+# Squeezelite (found by Music Assistant's Squeezelite provider) plays into
+# BlueALSA, which streams A2DP to the radio. radio-link.sh reconnects the
+# radio's audio whenever it comes back (car started).
+SQ_DEFAULTS=/etc/default/squeezelite
+RADIO_UNIT=/etc/systemd/system/odroid-ha-radio-link.service
+if on ENABLE_RADIO_AUDIO; then
+    say "Setting up radio audio (player \"$RADIO_AUDIO_NAME\")"
+    on ENABLE_BT_PROXY && warn "The BLE proxy's scanning blocks connecting to the radio; consider turning the proxy off."
+    install -d "$APP_DIR/radio"
+    install -m 755 "$SRC_DIR/radio/radio-link.sh" "$APP_DIR/radio/radio-link.sh"
+    cat >"$RADIO_UNIT" <<EOF
+# Generated by odroid-ha install.sh
+[Unit]
+Description=Keep the JVC radio's Bluetooth audio connected
+After=bluetooth.service bluealsa.service
+Wants=bluealsa.service
+
+[Service]
+ExecStart=$APP_DIR/radio/radio-link.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    # Keep DietPi's original once, so switching the part off can put it back
+    [ -f "$SQ_DEFAULTS" ] && [ ! -f "$SQ_DEFAULTS.dietpi-orig" ] && cp "$SQ_DEFAULTS" "$SQ_DEFAULTS.dietpi-orig"
+    # -C 5: let go of the radio 5 s after playback stops. -r/-R: the A2DP link
+    # runs at 48 kHz, so resample (only) tracks that aren't 48 kHz.
+    SQ_NAME=$(echo "$RADIO_AUDIO_NAME" | tr ' ' '-' | tr -cd 'A-Za-z0-9._-')
+    cat >"$SQ_DEFAULTS" <<EOF
+# Generated by odroid-ha install.sh: Music Assistant → Squeezelite → BlueALSA → JVC radio
+ARGS="-W -C 5 -n ${SQ_NAME:-Car-Radio} -o bluealsa:DEV=$JVC_MAC,PROFILE=a2dp -r 48000 -R mE${RADIO_AUDIO_SERVER:+ -s $RADIO_AUDIO_SERVER}"
+EOF
+    systemctl daemon-reload
+    systemctl enable --now bluealsa
+    systemctl enable odroid-ha-radio-link squeezelite
+    systemctl restart odroid-ha-radio-link squeezelite
+else
+    if [ -f "$RADIO_UNIT" ]; then
+        systemctl disable --now odroid-ha-radio-link 2>/dev/null || true
+        rm -f "$RADIO_UNIT"
+        systemctl daemon-reload
+        systemctl disable --now squeezelite bluealsa 2>/dev/null || true
+        [ -f "$SQ_DEFAULTS.dietpi-orig" ] && mv -f "$SQ_DEFAULTS.dietpi-orig" "$SQ_DEFAULTS"
+    fi
+    rm -rf "$APP_DIR/radio"
+fi
+
+# ─── 8. Convenience commands ──────────────────────────────────────────────────
 install -m 755 "$SRC_DIR/install.sh" /usr/local/sbin/odroid-ha-install
 cat > /usr/local/bin/odroid-ha-check <<'EOF'
 #!/bin/sh
@@ -643,6 +725,10 @@ if on ENABLE_BT_PROXY; then
 fi
 if on ENABLE_KIOSK; then
     echo "  - Kiosk login: see README.md \"Home Assistant side\" (trusted_networks for ${IP:-<odroid-ip>})."
+fi
+if on ENABLE_RADIO_AUDIO; then
+    echo "  - Music Assistant → Settings → Providers: add \"Squeezelite (slimproto)\"; the player"
+    echo "    \"$RADIO_AUDIO_NAME\" appears once the radio is on and connected."
 fi
 cat <<EOF
   - Add or remove parts:  odroid-ha-install --configure
