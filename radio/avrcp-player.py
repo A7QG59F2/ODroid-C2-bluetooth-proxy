@@ -80,6 +80,23 @@ class HomeAssistant:
         self._req("POST", f"/api/services/media_player/{service}", {"entity_id": self.entity})
 
 
+TAGGED = re.compile(r'(?:^|\s)text="([^"]*)"')
+
+
+def clean_track(title, artist):
+    """Radio streams (iHeart and others) put a raw tag line in the title, e.g.
+    'Def Leppard - text="Photograph" song_spot="M" MediaBaseId="0" ...'.
+    Return (title, artist) with just the song and its artist."""
+    if not title:
+        return title, artist
+    m = TAGGED.search(title)
+    if not m:
+        return title, artist
+    song = m.group(1).strip()
+    prefix = title[:m.start()].strip().rstrip("-").strip()
+    return song or prefix or title, prefix or artist
+
+
 def to_status(state):
     return {"playing": "Playing", "paused": "Paused"}.get(state, "Stopped")
 
@@ -202,11 +219,13 @@ class Player(dbus.service.Object):
             self.error = None
         a = st.get("attributes", {}) if isinstance(st, dict) else {}
         status = to_status(st.get("state") if isinstance(st, dict) else None)
+        title, artist = clean_track(a.get("media_title"), a.get("media_artist"))
+        a = dict(a, media_title=title, media_artist=artist)
         meta = {}
-        if a.get("media_title"):
-            meta["xesam:title"] = dbus.String(a["media_title"])
-        if a.get("media_artist"):
-            meta["xesam:artist"] = dbus.Array([a["media_artist"]], signature="s")
+        if title:
+            meta["xesam:title"] = dbus.String(title)
+        if artist:
+            meta["xesam:artist"] = dbus.Array([artist], signature="s")
         if a.get("media_album_name"):
             meta["xesam:album"] = dbus.String(a["media_album_name"])
         if a.get("media_duration"):
