@@ -18,7 +18,7 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 |---|---|---|
 | Odroid C2 | Amlogic S905 (`meson-gxbb`), 2 GB, Mali-450 (lima, GLES 2.0 only) | Weak GPU; Chromium mostly software-renders. 4× USB 2.0. |
 | TP-Link UB500 | `2357:0604`, RTL8761BU, btusb/btrtl, `firmware-realtek` | Always `hci0` (C2 has no onboard BT) |
-| TP-Link TL-WN821N, **RT5572 version** | `148f:5572`, `rt2800usb`, `firmware-misc-nonfree` (`rt2870.bin`) | Dual-band; must use **5 GHz** to avoid fighting BT. Power-save disabled by udev rule. |
+| TP-Link TL-WN821N, **RT5572 version** | `148f:5572`, `rt2800usb`, `firmware-mediatek` (`rt2870.bin`; not in misc-nonfree on trixie) | Dual-band; must use **5 GHz** to avoid fighting BT. Power-save disabled by udev rule. |
 | MAGEX 10.1" touch monitor + case | HDMI + USB HID touch (`0416:c168` Winbond MTouch) | Native **1920×1200** (confirmed, 220×132 mm), auto-detected |
 | JVC KD-SX38MBT | BT MAC `88:E0:34:B7:98:6C` | Phone app "JVC Remote" uses SPP; protocol undocumented |
 

@@ -14,7 +14,7 @@ One **DietPi** install on an Odroid C2 that does three jobs:
 |---|---|
 | Odroid C2 (S905, 2 GB, Mali-450) | Weak GPU (GLES 2.0). Keep the kiosk dashboard light: tiles and buttons, no live camera streams. |
 | **TP-Link UB500** (RTL8761BU, `2357:0604`) | Needs `firmware-realtek` (installed). It is `hci0`, since the C2 has no built-in BT. |
-| **TP-Link TL-WN821N, RT5572 version** (`148f:5572`) | Dual-band. Driver `rt2800usb` + `firmware-misc-nonfree` (installed). **Use 5 GHz**, because 2.4 GHz fights the Bluetooth dongle. |
+| **TP-Link TL-WN821N, RT5572 version** (`148f:5572`) | Dual-band. Driver `rt2800usb` + `firmware-mediatek` (`rt2870.bin`, installed). **Use 5 GHz**, because 2.4 GHz fights the Bluetooth dongle. |
 | **MAGEX 10.1" touch monitor w/ case** | HDMI video, USB touch (driver-free). Power the screen from its own supply, not a C2 USB port. |
 
 USB ports: touch, UB500 and Wi-Fi take 3 of the 4. Ethernet is still the most reliable option if you can run a cable.
@@ -50,7 +50,7 @@ DietPi then sets itself up, and the last step runs [`dietpi/Automation_Custom_Sc
 
 ## What `install.sh` does
 
-1. Installs the firmware (`firmware-realtek`, `firmware-misc-nonfree`), plus BlueZ, Xorg, Chromium and `xinput`.
+1. Installs the firmware (`firmware-realtek`, `firmware-mediatek` for the RT5572, `firmware-misc-nonfree`), plus BlueZ, Xorg, Chromium and `xinput`.
 2. Unblocks Bluetooth (removes DietPi's Bluetooth blacklist if set), sets BlueZ `AutoEnable=true` and powers on the UB500.
 3. Turns off RT5572 Wi-Fi power saving (udev rule), so the proxy doesn't drop off the network.
 4. Installs **bt-proxy** in `/opt/bt-proxy` using `uv`, then creates and starts **`bt-proxy.service`** (port **6053**, mDNS-advertised).

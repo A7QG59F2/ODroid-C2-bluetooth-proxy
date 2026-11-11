@@ -35,6 +35,7 @@ check() {
     lsusb 2>/dev/null | grep -Ei '2357:0604|148f:5572|0bda|touch|hid' || echo "  (lsusb shows none of the expected devices)"
     echo "  UB500 (2357:0604):  $(lsusb 2>/dev/null | grep -qi 2357:0604 && echo found || echo MISSING)"
     echo "  RT5572 (148f:5572): $(lsusb 2>/dev/null | grep -qi 148f:5572 && echo found || echo 'not found (ok if using Ethernet)')"
+    echo "  RT5572 firmware:    $([ -f /lib/firmware/rt2870.bin ] && echo present || echo 'MISSING (apt install firmware-mediatek)')"
     echo "── Bluetooth ──"
     rfkill list bluetooth 2>/dev/null | sed 's/^/  /' || true
     bluetoothctl show 2>/dev/null | grep -E 'Controller|Powered|Name' | sed 's/^/  /' || echo "  bluetoothctl: no controller"
@@ -99,8 +100,10 @@ APT="apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-co
 # ─── 1. Packages ──────────────────────────────────────────────────────────────
 say "Installing packages"
 apt-get update
-# Firmware: Realtek = UB500 (rtl8761bu_fw.bin), misc-nonfree = RT5572 (rt2870.bin)
-$APT install firmware-realtek firmware-misc-nonfree || warn "firmware packages failed: check non-free-firmware is enabled in /etc/apt/sources.list"
+# Firmware: Realtek = UB500 (rtl8761bu_fw.bin), mediatek = RT5572 (rt2870.bin;
+# trixie moved the Ralink files out of firmware-misc-nonfree). These replace
+# DietPi's armbian-firmware package (they conflict), which is expected.
+$APT install firmware-realtek firmware-mediatek firmware-misc-nonfree || warn "firmware packages failed: check non-free-firmware is enabled in /etc/apt/sources.list"
 $APT install bluez rfkill usbutils iw curl git ca-certificates python3
 
 if [ "${ENABLE_KIOSK:-1}" = "1" ]; then
