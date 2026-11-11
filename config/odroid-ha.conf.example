@@ -26,7 +26,7 @@ ENABLE_KIOSK="1"
 KIOSK_USER="kiosk"
 # Screen rotation: normal | left | right | inverted   (touch follows automatically)
 SCREEN_ROTATION="normal"
-# Force a mode if auto-detect picks the wrong one, e.g. "1280x800" or "1920x1200". Empty = auto.
+# Force a mode if auto-detect picks the wrong one, e.g. "1920x1200" (the panel's native mode). Empty = auto.
 SCREEN_MODE=""
 # Keep the screen on (1) or let it blank after SCREEN_BLANK_SECONDS (0)
 SCREEN_ALWAYS_ON="1"

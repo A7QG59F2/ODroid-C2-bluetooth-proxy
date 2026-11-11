@@ -19,7 +19,7 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 | Odroid C2 | Amlogic S905 (`meson-gxbb`), 2 GB, Mali-450 (lima, GLES 2.0 only) | Weak GPU; Chromium mostly software-renders. 4× USB 2.0. |
 | TP-Link UB500 | `2357:0604`, RTL8761BU, btusb/btrtl, `firmware-realtek` | Always `hci0` (C2 has no onboard BT) |
 | TP-Link TL-WN821N, **RT5572 version** | `148f:5572`, `rt2800usb`, `firmware-misc-nonfree` (`rt2870.bin`) | Dual-band; must use **5 GHz** to avoid fighting BT. Power-save disabled by udev rule. |
-| MAGEX 10.1" touch monitor + case | HDMI + USB HID touch | Resolution not yet confirmed (1280×800 or 1920×1200) |
+| MAGEX 10.1" touch monitor + case | HDMI + USB HID touch (`0416:c168` Winbond MTouch) | Native **1920×1200** (confirmed, 220×132 mm), auto-detected |
 | JVC KD-SX38MBT | BT MAC `88:E0:34:B7:98:6C` | Phone app "JVC Remote" uses SPP; protocol undocumented |
 
 ## Repo layout
@@ -45,15 +45,18 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
   Onboard settings are **system dconf defaults** in `/etc/dconf/db/odroidha.d/00-onboard` (profile `/etc/dconf/profile/user`), with `force-to-top` (no WM) and `touch-input='none'`. Chrome-extension keyboards were rejected: HA inputs live in shadow DOM, and the old MV2 extensions are dead. Adam's earlier DietPi kiosk attempt failed on exactly this keyboard, so treat it as important.
 - No window manager. Chromium runs fullscreen under bare Xorg (`xserver-xorg-legacy`, `Xwrapper.config` `allowed_users=console`).
 
-## Status (as of 2026-11-10)
+## Status (as of 2026-11-11)
 
-- Code is written and pushed, but **not yet verified on the real hardware.** The first boot of DietPi on the C2 happened 2026-11-09/10.
-- Expect to debug on first run:
-  - `firmware-misc-nonfree` availability in DietPi's apt sources
-  - Chromium on lima (fallback `CHROMIUM_EXTRA_FLAGS="--disable-gpu"`)
-  - the touch matrix after rotation
-  - which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel
-  - whether `uv sync` finds a suitable Python on trixie
+- **First install done on the real hardware** (DietPi on Debian 13 trixie, kernel 6.18 meson64, Odroid at 192.168.1.144, HA at 192.168.1.3:8123). Verified:
+  - Firmware packages install fine from DietPi's apt sources (non-free-firmware is enabled).
+  - `uv sync` uses the system Python 3.13; bt-proxy builds and runs.
+  - UB500 loads `rtl8761bu_fw.bin`; RT5572 shows as "RT chipset 5592" in dmesg (normal for rt2800usb) and is dual-band.
+  - Xorg needs `/etc/X11/xorg.conf.d/10-odroid-ha-meson.conf` (kmsdev = meson-drm by-path, `AutoAddGPU` off). Without it, the two DRM devices (meson-drm card0, lima card1) make X die with "Cannot run in framebuffer mode".
+  - With no WM, Chromium needs an explicit `--window-size` or it only fills half the screen.
+  - Chromium's GPU process fails on lima (it wants GLES 3) and falls back to software by itself; `--disable-gpu` hasn't been needed.
+  - HA login page renders; Onboard docks at the bottom.
+- DietPi's SSH is Dropbear without SFTP: `scp` fails, so copy files with `ssh host 'cat > file' < file`. DietPi also masks `systemd-logind` (Xorg logs an error about it, harmless).
+- Still to check: the touch matrix after rotation, which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel, and the Wi-Fi country code (5 GHz channels show `no IR` until it's set in dietpi-config).
 
 ## Next work
 

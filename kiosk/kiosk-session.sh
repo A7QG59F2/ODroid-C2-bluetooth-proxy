@@ -34,6 +34,12 @@ if [ -n "$OUTPUT" ]; then
     xrandr --output "$OUTPUT" --rotate "$SCREEN_ROTATION" || log "rotation $SCREEN_ROTATION failed"
 fi
 
+# There's no window manager to maximise Chromium, so --kiosk alone leaves it
+# at its default window size (about half the screen). Give it the real
+# screen size, read after rotation.
+SCREEN_WH=$(xrandr --query 2>/dev/null | awk '/^Screen 0:/{for(i=1;i<=NF;i++) if($i=="current"){w=$(i+1); h=$(i+3); sub(",","",h); print w "," h; exit}}')
+SCREEN_WH="${SCREEN_WH:-1920,1200}"
+
 # Rotate touch input to match the screen
 case "$SCREEN_ROTATION" in
     left)     MATRIX="0 -1 1 1 0 0 0 0 1" ;;
@@ -101,6 +107,9 @@ while true; do
     # shellcheck disable=SC2086
     chromium \
         --kiosk "$HA_URL" \
+        --start-fullscreen \
+        --window-position=0,0 \
+        --window-size="$SCREEN_WH" \
         --user-data-dir="$PROFILE" \
         --no-first-run \
         --noerrdialogs \

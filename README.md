@@ -88,7 +88,7 @@ If not: **Add Integration → ESPHome → host `<odroid-ip>`, port `6053`**. bt-
 3. Restart HA.
 
 **Clean screen:** install [kiosk-mode](https://github.com/NemesisRE/kiosk-mode) from HACS to hide the header and sidebar for the kiosk user.
-Make a dashboard laid out for the panel (1280×800 or 1920×1200 landscape).
+Make a dashboard laid out for the panel (1920×1200 landscape).
 
 ## On-screen keyboard
 
@@ -127,7 +127,7 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `BT_PROXY_NAME`, `BT_PROXY_FRIENDLY_NAME` | `odroid-c2-btproxy` | Name in HA |
 | `BT_ADAPTER` / `BT_MAX_CONNECTIONS` | `hci0` / `3` | Which dongle; active-connection slots |
 | `SCREEN_ROTATION` | `normal` | `normal`/`left`/`right`/`inverted` (touch follows) |
-| `SCREEN_MODE` | auto | Force e.g. `1280x800` |
+| `SCREEN_MODE` | auto | Force a mode, e.g. `1920x1200` (the panel's native mode) |
 | `SCREEN_ALWAYS_ON` / `SCREEN_BLANK_SECONDS` | `1` / `600` | Blanking |
 | `CHROMIUM_ZOOM` | `1.0` | e.g. `1.25` on a 1920×1200 panel |
 | `CHROMIUM_EXTRA_FLAGS` | empty | Add `--disable-gpu` if the page is blank/white |
