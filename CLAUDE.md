@@ -83,5 +83,5 @@ Planning notes also live in the claude.ai Project "ODroid C2 - home assistant".
 
 - Shell scripts must pass `shellcheck -S warning` and `bash -n`. Keep `install.sh` idempotent and re-runnable.
 - LF line endings (enforced by `.gitattributes`). Adam edits on Windows.
-- New settings go in `config/odroid-ha.conf.example` **and** the README settings table, with safe defaults in the scripts (`${VAR:-default}`).
+- New settings go in `config/odroid-ha.conf.example` **and** the README settings table, with safe defaults in the scripts (`${VAR:-default}`). install.sh appends any example key missing from a board's live config (with the example's value), so existing boards pick new settings up on the next `odroid-ha-install`. If a new setting is a per-board choice, also ask it in `configure()`.
 - Don't add hardware auto-detection or other boards. This repo targets exactly the hardware above.

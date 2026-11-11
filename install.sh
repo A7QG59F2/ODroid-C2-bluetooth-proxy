@@ -257,7 +257,18 @@ if [ ! -f "$CONF" ]; then
         NEW_CONF=1
     fi
 fi
+# Settings added to the repo after this board was set up: append them with
+# their example defaults so they're visible and editable. Existing values stay.
+ADDED=""
+while IFS= read -r line; do
+    key=${line%%=*}
+    if ! grep -q "^$key=" "$CONF"; then
+        [ -z "$ADDED" ] && printf '\n# Added by install.sh (new settings, defaults from the repo)\n' >>"$CONF"
+        echo "$line" >>"$CONF"; ADDED="$ADDED $key"
+    fi
+done < <(grep -E '^[A-Z_][A-Z0-9_]*=' "$SRC_DIR/config/odroid-ha.conf.example")
 load_conf
+[ -n "$ADDED" ] && say "New settings added to $CONF:$ADDED"
 if [ "${1:-}" = "--configure" ] || { [ "$NEW_CONF" = 1 ] && [ -t 0 ]; }; then
     configure
     load_conf
