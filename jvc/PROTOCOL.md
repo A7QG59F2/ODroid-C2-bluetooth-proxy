@@ -97,6 +97,9 @@ must reconnect and redo the handshake.
 | BT audio | `06 14` |
 
 Radio confirms with `12 01 [x src_hi src_lo 01 <EQ name, 10 chars>]` (the EQ preset is per source).
+A source select sent while the radio is still sending its handshake replies (the `5b 30` source list) is
+silently ignored; wait until the handshake has finished (~5 s after connecting works).
+Leaving BT audio makes the radio send AVRCP Pause, and coming back sends Play.
 
 ## Radio → phone notifications
 
