@@ -149,6 +149,7 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | Key | Default | Meaning |
 |---|---|---|
 | `HA_URL` | `http://homeassistant.local:8123/lovelace/0` | Page the kiosk opens |
+| `TIMEZONE` | empty (keep the system's) | Local time zone, e.g. `America/Indiana/Indianapolis`; asked by `--configure`. The JVC radio's clock is set from it |
 | `ENABLE_BT_PROXY` / `ENABLE_WIFI` / `ENABLE_KIOSK` | `1` | Turn each part on or off |
 | `ENABLE_JVC_TOOLS` | `0` | JVC probe tool (needs the UB500) |
 | `BT_PROXY_NAME`, `BT_PROXY_FRIENDLY_NAME` | `odroid-c2-<mac4>` | Name in HA; must be unique per board |

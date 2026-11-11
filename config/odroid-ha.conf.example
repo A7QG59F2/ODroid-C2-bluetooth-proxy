@@ -16,6 +16,13 @@
 # Tip: a dedicated light-weight dashboard works best on the C2's GPU.
 HA_URL="http://homeassistant.local:8123/lovelace/0"
 
+# ─── System ─────────────────────────────────────────────────────────────────
+# Local time zone, a name under /usr/share/zoneinfo such as
+# "America/Indiana/Indianapolis". The JVC radio's clock is set from this board,
+# so it must be right. Empty = keep the system's zone (DietPi sets it on first
+# boot from AUTO_SETUP_TIMEZONE). --configure asks for it.
+TIMEZONE=""
+
 # ─── Bluetooth proxy (denvera/bt-proxy) ─────────────────────────────────────
 ENABLE_BT_PROXY="1"
 # Name shown in Home Assistant (lowercase, letters/numbers/dashes). Must be

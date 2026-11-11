@@ -47,6 +47,7 @@ load_conf() {
     : "${BT_PROXY_FRIENDLY_NAME:=Odroid C2 Bluetooth Proxy $BOARD_ID}"
     : "${WIFI_SSID:=}" "${WIFI_COUNTRY:=US}" "${WIFI_5GHZ_ONLY:=1}" "${WIFI_DISABLE_POWERSAVE:=1}"
     : "${HA_URL:=http://homeassistant.local:8123/lovelace/0}"
+    : "${TIMEZONE:=}"
     : "${ONSCREEN_KEYBOARD:=1}" "${OSK_FLOATING_BUTTON:=0}"
 }
 on() { [ "${!1:-0}" = "1" ]; }
@@ -206,11 +207,19 @@ ask_str() {  # $1: variable  $2: question
     [ -n "$ans" ] && printf -v "$var" '%s' "$ans"
     set_conf "$var" "${!var:-}"
 }
+system_tz() { readlink -f /etc/localtime 2>/dev/null | sed 's|^.*/zoneinfo/||'; }
 configure() {
     [ -t 0 ] || die "--configure needs a terminal (use: ssh -t root@<odroid> odroid-ha-install --configure)"
     echo
     echo "Which parts does this Odroid have? Press Enter to keep the value in [brackets]."
     echo
+    TIMEZONE=${TIMEZONE:-$(system_tz)}
+    while true; do
+        ask_str TIMEZONE "Time zone (e.g. America/Indiana/Indianapolis, Europe/London)"
+        [ -f "/usr/share/zoneinfo/$TIMEZONE" ] && break
+        warn "'$TIMEZONE' isn't a known zone. Names are listed under /usr/share/zoneinfo."
+        TIMEZONE=$(system_tz)
+    done
     ask_yn ENABLE_BT_PROXY "Home Assistant Bluetooth proxy (TP-Link UB500)?"
     if on ENABLE_BT_PROXY; then
         ask_str BT_PROXY_NAME "  Name in Home Assistant (lowercase, unique per board)"
@@ -284,6 +293,22 @@ say "Features: bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kio
 # Basic sanity: is this an Odroid C2?
 if ! grep -qi 'odroid-c2\|odroid c2\|meson-gxbb' /proc/device-tree/model /proc/device-tree/compatible 2>/dev/null; then
     warn "This doesn't look like an Odroid C2 ($(tr -d '\0' </proc/device-tree/model 2>/dev/null || echo unknown)). Continuing anyway."
+fi
+
+# Local time zone: the kiosk clock and the JVC radio's clock (set from this
+# board on every connect) both follow it. DietPi only sets it on first boot;
+# an empty TIMEZONE leaves whatever the system has.
+if [ -z "$TIMEZONE" ]; then
+    :
+elif [ -f "/usr/share/zoneinfo/$TIMEZONE" ]; then
+    if [ "$(readlink -f /etc/localtime)" != "$(readlink -f "/usr/share/zoneinfo/$TIMEZONE")" ]; then
+        say "Setting time zone to $TIMEZONE"
+        timedatectl set-timezone "$TIMEZONE" 2>/dev/null || ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+    fi
+    echo "$TIMEZONE" > /etc/timezone
+    [ -f /boot/dietpi.txt ] && sed -i "s|^AUTO_SETUP_TIMEZONE=.*|AUTO_SETUP_TIMEZONE=$TIMEZONE|" /boot/dietpi.txt
+else
+    warn "Unknown TIMEZONE '$TIMEZONE' (see /usr/share/zoneinfo); leaving the time zone as it is."
 fi
 
 export DEBIAN_FRONTEND=noninteractive

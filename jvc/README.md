@@ -86,7 +86,15 @@ sudo /opt/odroid-ha/jvc/jvc-probe.py send --channel 16 --send "<handshake hex>" 
 
 Raw replay only works for frames whose sequence number and checksum still fit; every frame needs
 a fresh seq and CRC (see PROTOCOL.md), and the radio's `3b 02` hello must be answered first.
-`jvc-probe.py` doesn't build frames yet.
+`talk` does all of that (hello, ACKs, the app's startup queries, clock/date from local time):
+
+```bash
+sudo /opt/odroid-ha/jvc/jvc-probe.py talk --do "11 05 08" --do "sleep 2" --do "11 05 07"   # Vol+, Vol−
+```
+
+**BLE scanning blocks the connect.** While bt-proxy scans (`Discovering: yes`), the UB500 can't open
+a Classic link to the radio (`Host is down`, even `l2ping` fails). A link that's already open
+survives scanning. Stop bt-proxy while connecting, or turn the proxy off on boards that don't need it.
 
 ## 6. Bridge (to do)
 

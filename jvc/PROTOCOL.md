@@ -58,7 +58,7 @@ Right after the RFCOMM link opens:
 | `3b 01` | `5b 01 [00 10 00 00]` | *(unconfirmed)* capabilities |
 | `3b 34` | `5b 34 [ff 31 24 22 00 00 00 01]` | *(unconfirmed)* model / firmware |
 | `3b 36` | `5b 36 [01]` | *(unconfirmed)* |
-| `3b 35 [dow hh mm ss]` | `5b 35 [01]` | **set clock**, e.g. `03 00 10 2d` = Wed 00:16:45 |
+| `3b 35 [dow hh mm ss]` | `5b 35 [01]` | **set clock**, e.g. `03 00 10 2d` = Wed 00:16:45 (dow assumed Sun = 0; only Wed = 3 seen) |
 | `3b 37 [yy yy mm dd]` | `5b 37 [01]` | **set date**, e.g. `14 1a 0b 0b` = 20 26 11 11 |
 | `3b 12` | `5b 11 [01 00]`, `5b 12 […"FLAT"…]` | current source / EQ name |
 | `3b 30` | 18 × `5b 30 [13 idx src_hi src_lo en]` | **source list**: `en` = `01` enabled, `00` disabled in the radio's settings, `ff` not available. Re-sent for one entry when it changes on the radio (enabling AM sent `[13 02 03 01 01]`). |

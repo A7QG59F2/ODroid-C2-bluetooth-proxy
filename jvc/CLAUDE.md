@@ -14,5 +14,7 @@ put back any radio setting you change.
    - key codes `09`+ (power?), Up/Down on BT audio, play/pause on BT
 2. **`jvc2mqtt` bridge.** A Python systemd service on the Odroid that holds the RFCOMM link
    (reconnecting: the link drops on its own now and then), maps MQTT topics to commands and
-   publishes the notifications, with MQTT Discovery. It shares the UB500 with bt-proxy through
+   publishes the notifications, with MQTT Discovery. The Odroid stays connected instead of
+   Adam's phone, so it owns the radio's clock: set it (`3b 35` / `3b 37`, local time from
+   `TIMEZONE`) on every connect and again periodically (drift, DST changes). It shares the UB500 with bt-proxy through
    BlueZ. Add a second BT dongle only if Classic + BLE scanning on one adapter proves flaky.
