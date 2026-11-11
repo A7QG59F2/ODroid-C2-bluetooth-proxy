@@ -47,16 +47,17 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 
 ## Status (as of 2026-11-11)
 
-- **First install done on the real hardware** (DietPi on Debian 13 trixie, kernel 6.18 meson64, Odroid at 192.168.1.144, HA at 192.168.1.3:8123). Verified:
-  - Firmware packages install fine from DietPi's apt sources (non-free-firmware is enabled).
+- **First install done on the real hardware** (DietPi on Debian 13 trixie, kernel 6.18 meson64, HA at 192.168.1.3:8123). Verified:
+  - Firmware packages install fine from DietPi's apt sources (non-free-firmware is enabled). They replace DietPi's `armbian-firmware` (conflict); that's expected.
   - `uv sync` uses the system Python 3.13; bt-proxy builds and runs.
   - UB500 loads `rtl8761bu_fw.bin`; RT5572 shows as "RT chipset 5592" in dmesg (normal for rt2800usb) and is dual-band.
   - Xorg needs `/etc/X11/xorg.conf.d/10-odroid-ha-meson.conf` (kmsdev = meson-drm by-path, `AutoAddGPU` off). Without it, the two DRM devices (meson-drm card0, lima card1) make X die with "Cannot run in framebuffer mode".
   - With no WM, Chromium needs an explicit `--window-size` or it only fills half the screen.
   - Chromium's GPU process fails on lima (it wants GLES 3) and falls back to software by itself; `--disable-gpu` hasn't been needed.
-  - HA login page renders; Onboard docks at the bottom.
+  - HA login page renders; Onboard auto-show docks it at the bottom. Adam turned the floating button off (`OSK_FLOATING_BUTTON="0"` in the live config).
+- **Network:** Wi-Fi is primary at **192.168.1.127** (SSID ABoy, 5 GHz only via `freq_list`, country US); it was .144 on Ethernet. `eth0` stays `allow-hotplug` as a fallback, and `ignore_routes_with_linkdown=1` (set by install.sh) keeps a pulled cable from stranding the default route. `wpa_supplicant.conf` holds only the derived PSK (no plaintext in `/boot/dietpi-wifi.txt`); `/etc/network/interfaces.d/wlan0.conf` brings it up.
 - DietPi's SSH is Dropbear without SFTP: `scp` fails, so copy files with `ssh host 'cat > file' < file`. DietPi also masks `systemd-logind` (Xorg logs an error about it, harmless).
-- Still to check: the touch matrix after rotation, which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel, and the Wi-Fi country code (5 GHz channels show `no IR` until it's set in dietpi-config).
+- Still to check: the touch matrix after rotation, which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel, and the final `HA_URL` dashboard path (still the placeholder `/lovelace/0`).
 
 ## Next work
 

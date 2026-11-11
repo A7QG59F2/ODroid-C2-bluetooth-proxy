@@ -150,6 +150,15 @@ ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="/usr/sbin/iw dev %k set 
 EOF
     for w in $(iw dev 2>/dev/null | awk '/Interface/{print $2}'); do iw dev "$w" set power_save off 2>/dev/null || true; done
 fi
+# Wi-Fi primary with Ethernet as a fallback: ifupdown leaves eth0's default
+# route behind when the cable is pulled, so tell the kernel to skip routes on
+# a port with no link.
+cat > /etc/sysctl.d/90-odroid-ha-net.conf <<'EOF'
+# Skip routes on an unplugged port (Wi-Fi primary, Ethernet as fallback)
+net.ipv4.conf.all.ignore_routes_with_linkdown = 1
+net.ipv6.conf.all.ignore_routes_with_linkdown = 1
+EOF
+sysctl -p /etc/sysctl.d/90-odroid-ha-net.conf >/dev/null || true
 lsusb | grep -qi 148f:5572 && say "RT5572 Wi-Fi found. Join your 5 GHz network with dietpi-config if not already."
 
 # ─── 4. Bluetooth proxy (denvera/bt-proxy, native, no Docker) ────────────────
