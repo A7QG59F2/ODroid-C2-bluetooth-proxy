@@ -10,19 +10,18 @@ The command bytes aren't published anywhere. The plan:
 2. **Replay** those bytes from the Odroid with `jvc-probe.py`.
 3. **Build the bridge** (`jvc2mqtt`), which turns the receiver into Home Assistant entities over MQTT.
 
-## Findings so far (2026-11-10)
+## Status (2026-11-11): protocol decoded
+
+**The full protocol is in [`PROTOCOL.md`](PROTOCOL.md):** frame format, CRC-16/ARC checksum,
+connect handshake, key codes, source IDs, notifications (volume, frequency, RDS, track info)
+and the settings get/set commands.
 
 - Pairing works with `bluetoothctl` as below. After pairing, the Odroid shows up in the radio's **ANDROID LIST**.
 - `scan` found open RFCOMM channels **7, 9 and 16**. **Channel 16 is the JVC Remote link.**
-- Once connected on ch 16, the radio sends this frame every **~2 s**:
-  ```
-  7e 0b 01 50 a4 3b 02 00 00 01 00 00 88 59 7c
-  ```
-  - starts `0x7E` and ends `0x7C`
-  - byte 2 (`0x0B` = 11) matches the 11 bytes `01 … 88` that follow it
-  - the byte before `0x7C` (`0x59`) is probably a checksum; it isn't a plain sum, XOR or CRC-16 of the obvious ranges
-- If nothing answers, the radio **drops the link after ~20 s** (`Connection reset by peer`). That looks like a heartbeat/poll that the app has to reply to. The phone capture will show the reply, and the bridge must send it on the same schedule.
-- Channels 7 and 9 are most likely hands-free (HFP) and another profile. Not needed.
+  Channels 7 and 9 are most likely hands-free (HFP) and another profile. Not needed.
+- The frame the radio repeats every ~2 s after connecting (`… 3b 02 …`) is its **hello**. It stops
+  once it is ACKed and answered with `5b 02 [00 00 01 01]`; unanswered, the radio drops the link
+  after ~20 s. See PROTOCOL.md → Connect handshake.
 
 ## 1. Pair the Odroid with the receiver
 
@@ -58,37 +57,42 @@ Change source or volume on the receiver itself. If status packets show up, the l
 
 ## 4. Capture the app's commands (phone + PC)
 
-On the PC with adb:
+JVC Remote logs every frame it sends and receives to logcat, so no HCI snoop log or Wireshark
+is needed. On the PC, with the phone on USB debugging (on Samsung, **Auto Blocker must be off**
+or adb is blocked):
 
 ```powershell
-adb shell settings put global bluetooth_btsnoop_default_mode full
-adb shell svc bluetooth disable; Start-Sleep 3; adb shell svc bluetooth enable
+adb logcat -c; adb logcat -v time > jvc-logcat.txt
 ```
 
-Or use **Developer options → Enable Bluetooth HCI snoop log**. Then connect JVC Remote and press each
-button **slowly, one at a time**, writing down the order. Afterwards:
+Press buttons in JVC Remote **one at a time**, noting the order, then stop with Ctrl+C and decode:
 
 ```powershell
-adb bugreport C:\jvc\bug.zip
+python jvc\decode-logcat.py jvc-logcat.txt              # frames + touch events
+python jvc\decode-logcat.py jvc-logcat.txt --after 00:20:00 --all
 ```
 
-Open `btsnoop_hci.log` from the zip in **Wireshark**, filter `btrfcomm || btspp`, and note the bytes
-sent for each button.
+The log contains whatever the phone is playing (track names etc.), so don't commit it.
+
+Fallback if a future app version stops logging: **Developer options → Enable Bluetooth HCI snoop
+log**, Bluetooth off/on, capture, then `adb bugreport` and open `btsnoop_hci.log` in Wireshark
+(`btrfcomm || btspp`).
 
 ## 5. Replay a command
 
 ```bash
-sudo /opt/odroid-ha/jvc/jvc-probe.py send --channel <N> --send "<handshake hex>" --send "<vol up hex>"
+sudo /opt/odroid-ha/jvc/jvc-probe.py send --channel 16 --send "<handshake hex>" --send "<vol up hex>"
 ```
 
-If the receiver ignores a lone command, replay the first few packets the app sent right after it connected
-(the handshake), then the command.
+Raw replay only works for frames whose sequence number and checksum still fit; every frame needs
+a fresh seq and CRC (see PROTOCOL.md), and the radio's `3b 02` hello must be answered first.
+`jvc-probe.py` doesn't build frames yet.
 
 ## 6. Bridge (to do)
 
-Once the commands are known, `jvc2mqtt` will:
+`jvc2mqtt` will:
 
-- keep the RFCOMM link open
-- map MQTT topics to commands
-- publish status
+- keep the RFCOMM link open, answer the hello, ACK every frame, reconnect when the link drops
+- map MQTT topics to commands (keys, source select, EQ/loudness/bass settings)
+- publish status from the radio's notifications (volume, source, frequency, RDS, track info, EQ)
 - use MQTT Discovery so HA creates the entities on its own

@@ -22,14 +22,6 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 | MAGEX 10.1" touch monitor + case | HDMI + USB HID touch (`0416:c168` Winbond MTouch) | Native **1920×1200** (confirmed, 220×132 mm), auto-detected |
 | JVC KD-SX38MBT | BT MAC `88:E0:34:B7:98:6C` | Phone app "JVC Remote" uses SPP; protocol undocumented |
 
-## Repo layout
-
-- `install.sh`: the whole installer, idempotent, run as root. `--check` prints a health report. `--configure` asks which parts the board has (bt-proxy, Wi-Fi + SSID/password, kiosk + URL/keyboard, JVC) and writes the answers into the config; a first install from a terminal asks automatically, and a run without a terminal (DietPi first boot) never asks. It installs itself as `/usr/local/sbin/odroid-ha-install` (which re-clones the latest repo and re-applies, passing flags through) and adds `odroid-ha-check`.
-- `config/odroid-ha.conf.example`: all settings. The live copy is `/etc/odroid-ha/odroid-ha.conf` (or `/boot/odroid-ha.conf` is picked up on first install).
-- `kiosk/kiosk-session.sh`: the X session. It re-execs itself under `dbus-run-session`, sets up xrandr and the touch matrix, starts the AT-SPI bus and Onboard, waits for HA, then runs Chromium in a restart loop.
-- `dietpi/`: `dietpi.txt.settings` and `Automation_Custom_Script.sh` for hands-off first boot.
-- `jvc/jvc-probe.py`: RFCOMM `scan` / `listen` / `send`. `jvc/README.md` covers the capture and replay workflow.
-
 ## Key decisions (don't undo without asking)
 
 - **DietPi, not Armbian.** DietPi-Autostart must stay on **0 (Console)**. `install.sh` owns tty1 via `getty@tty1.service.d/zz-odroid-ha-kiosk.conf`.
@@ -68,20 +60,12 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
    - ESPHome integration → host `<odroid-ip>`, port 6053
    - HA user `kiosk` + `trusted_networks` for the Odroid's IP (see README)
    - HACS kiosk-mode
-3. **JVC capture.** Adam's phone is a Samsung SM-S938U1 with JVC Remote. On the PC:
-   - turn on the HCI snoop log (`adb shell settings put global bluetooth_btsnoop_default_mode full` + Bluetooth off/on)
-   - watch `adb logcat` while Adam presses buttons one at a time, noting the order
-   - `adb bugreport` → `btsnoop_hci.log` → Wireshark `btrfcomm || btspp`
-   - replay with `jvc-probe.py send`
-
-   The phone also has APK Extractor if decompiling JVC Remote (jadx) is faster.
-4. **`jvc2mqtt` bridge.** A Python systemd service on the Odroid that holds the RFCOMM link and maps MQTT topics to commands, with MQTT Discovery. It shares the UB500 with bt-proxy through BlueZ. Add a second BT dongle only if Classic + BLE scanning on one adapter proves flaky.
+3. **JVC capture and the `jvc2mqtt` bridge.** Plan and steps are in `jvc/CLAUDE.md`.
 
 Planning notes also live in the claude.ai Project "ODroid C2 - home assistant".
 
 ## Conventions
 
 - Shell scripts must pass `shellcheck -S warning` and `bash -n`. Keep `install.sh` idempotent and re-runnable.
-- LF line endings (enforced by `.gitattributes`). Adam edits on Windows.
 - New settings go in `config/odroid-ha.conf.example` **and** the README settings table, with safe defaults in the scripts (`${VAR:-default}`). install.sh appends any example key missing from a board's live config (with the example's value), so existing boards pick new settings up on the next `odroid-ha-install`. If a new setting is a per-board choice, also ask it in `configure()`.
 - Don't add hardware auto-detection or other boards. This repo targets exactly the hardware above.
