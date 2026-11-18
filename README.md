@@ -1,12 +1,12 @@
 # Odroid C2 – Home Assistant Bluetooth Proxy + Dashboard Kiosk
 
-One **DietPi** install on an Odroid C2 that does three jobs:
+One **DietPi** install on an Odroid C2 that does two jobs, plus the Bluetooth groundwork for a third:
 
 | Job | How |
 |---|---|
 | **Bluetooth proxy** for Home Assistant | [`denvera/bt-proxy`](https://github.com/denvera/bt-proxy) runs natively as a systemd service. HA sees it as an ESPHome Bluetooth proxy, with active connections supported. |
 | **Wall/desk dashboard kiosk** | Auto-login on tty1 → X → Chromium in kiosk mode on the MAGEX 10.1" touch screen, with an **on-screen keyboard** that pops up on its own. Restarts itself if it crashes. |
-| **JVC KD-SX38MBT groundwork** | `jvc-probe.py` pairs and talks to the receiver over Bluetooth Classic SPP, to replay the JVC Remote app's commands. See [`jvc/README.md`](jvc/README.md). |
+| **Bluetooth dongle** for other software | Firmware + BlueZ for the UB500. The JVC car radio integration runs on it from its own repo, [**jvc2mqtt**](https://github.com/A7QG59F2/jvc2mqtt). |
 
 ## Hardware this targets
 
@@ -35,14 +35,14 @@ Put the UB500 on a short USB extension, away from the Wi-Fi dongle.
    ```
 4. The first run asks which parts this board has, then installs only those:
    ```
-   Home Assistant Bluetooth proxy (TP-Link UB500)? [Y/n]
+   Bluetooth dongle (TP-Link UB500)? [Y/n]
+     Home Assistant Bluetooth proxy on it? [Y/n]
      Name in Home Assistant (lowercase, unique per board) [odroid-c2-07bc]
    Wi-Fi (TL-WN821N, RT5572)? [Y/n]
      Network name (SSID, empty = leave Wi-Fi unconfigured) []
      Wi-Fi password for MyNetwork:            (not echoed, never stored in plain text)
    Dashboard kiosk on the touch screen (MAGEX 10.1")? [Y/n]
      Dashboard URL [http://homeassistant.local:8123/lovelace/0]
-   JVC KD-SX38MBT car receiver tools (needs the UB500)? [y/N]
    ```
 
 ### Several boards, and adding parts later
@@ -55,8 +55,8 @@ plugging in a UB500, run the questions again. Enter keeps each current answer:
 ssh -t root@<odroid-ip> odroid-ha-install --configure
 ```
 
-Switching a part off removes what it set up (the bt-proxy service, the kiosk autologin, the JVC
-tool, our Wi-Fi config). `odroid-ha-check` only reports on the parts that are switched on.
+Switching a part off removes what it set up (the bt-proxy service, the kiosk autologin, our Wi-Fi
+config). `odroid-ha-check` only reports on the parts that are switched on.
 
 **Moving to Wi-Fi:** answer the Wi-Fi questions while still on Ethernet. The installer brings
 `wlan0` up next to Ethernet and prints its address; then unplug the cable. Ethernet stays
@@ -86,8 +86,7 @@ Each step runs only for the parts that are switched on.
    - hides the cursor
    - starts the on-screen keyboard (Onboard) with its accessibility bus
    - waits for HA, then runs Chromium `--kiosk` in a restart loop
-6. Installs `/opt/odroid-ha/jvc/jvc-probe.py`.
-7. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply; `--configure` to re-answer the questions).
+6. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply; `--configure` to re-answer the questions).
 
 It's safe to re-run as often as you like. Install log: `/var/log/odroid-ha-install.log`.
 
@@ -149,9 +148,9 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | Key | Default | Meaning |
 |---|---|---|
 | `HA_URL` | `http://homeassistant.local:8123/lovelace/0` | Page the kiosk opens |
-| `TIMEZONE` | empty (keep the system's) | Local time zone, e.g. `America/Indiana/Indianapolis`; asked by `--configure`. The JVC radio's clock is set from it |
-| `ENABLE_BT_PROXY` / `ENABLE_WIFI` / `ENABLE_KIOSK` | `1` | Turn each part on or off |
-| `ENABLE_JVC_TOOLS` | `0` | JVC probe tool (needs the UB500) |
+| `TIMEZONE` | empty (keep the system's) | Local time zone, e.g. `America/Indiana/Indianapolis`; asked by `--configure`. The kiosk's clock and (with jvc2mqtt) the JVC radio's clock follow it |
+| `ENABLE_BLUETOOTH` | `1` | UB500 firmware + BlueZ, powered on at boot |
+| `ENABLE_BT_PROXY` / `ENABLE_WIFI` / `ENABLE_KIOSK` | `1` | Turn each part on or off (the proxy needs `ENABLE_BLUETOOTH`) |
 | `BT_PROXY_NAME`, `BT_PROXY_FRIENDLY_NAME` | `odroid-c2-<mac4>` | Name in HA; must be unique per board |
 | `BT_ADAPTER` / `BT_MAX_CONNECTIONS` | `hci0` / `3` | Which dongle; active-connection slots |
 | `SCREEN_ROTATION` | `normal` | `normal`/`left`/`right`/`inverted` (touch follows) |
@@ -165,14 +164,6 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `WIFI_SSID` | empty | Network to join (password via `--configure`, never stored in plain text) |
 | `WIFI_COUNTRY` / `WIFI_5GHZ_ONLY` | `US` / `1` | Regulatory domain; stay off 2.4 GHz |
 | `WIFI_DISABLE_POWERSAVE` | `1` | Keep RT5572 awake |
-| `JVC_MAC` | empty | The radio's Bluetooth address (asked by `--configure`) |
-| `JVC_CHANNEL` | `16` | RFCOMM channel of the JVC Remote (SPP) service |
-| `ENABLE_RADIO_AUDIO` | `0` | Music Assistant player that plays through the radio (Squeezelite → BlueALSA → A2DP) |
-| `RADIO_AUDIO_NAME` | `Car-Radio` | Player name in Music Assistant |
-| `RADIO_AUDIO_SERVER` | empty (auto) | Music Assistant host, if auto-discovery fails |
-| `RADIO_RECONNECT_SECONDS` | `15` | Retry interval while the radio is off |
-| `RADIO_HA_ENTITY` | empty (`media_player.<name>`) | HA media_player whose state and track the radio shows, and that its buttons control. Needs the HA token `--configure` asks for (kept in `/etc/odroid-ha/ha-token`) |
-| `HA_API_URL` | empty (from `HA_URL`) | Home Assistant base URL for the API, e.g. `http://192.168.1.3:8123` |
 
 ## Troubleshooting
 
@@ -190,8 +181,16 @@ dmesg | grep -iE 'rtl|bluetooth|rt2800'  # driver + firmware messages
 - **Dashboard is sluggish**: simplify it. The Mali-450 can't accelerate modern Chromium well.
 - **Leave the kiosk to get a shell on the screen**: Ctrl+Alt+F2 switches to another console.
 
-## JVC KD-SX38MBT
+## JVC KD-SX38MBT car radio
 
-Bluetooth Classic (SPP) control isn't something the BLE proxy can carry. Pairing, the channel scan, the capture
-workflow and replay are in [`jvc/README.md`](jvc/README.md). The MQTT bridge is the next milestone, once the command
-bytes are captured.
+Moved to its own repo, [**jvc2mqtt**](https://github.com/A7QG59F2/jvc2mqtt): the decoded JVC Remote protocol,
+`jvc-probe`, Music Assistant through the radio, and the MQTT bridge. It runs on this board's UB500: keep
+`ENABLE_BLUETOOTH="1"` and `ENABLE_BT_PROXY="0"`, since the proxy's BLE scanning stops the dongle from
+connecting to the radio.
+
+A board that had `ENABLE_JVC_TOOLS` or `ENABLE_RADIO_AUDIO` on here keeps running those parts until
+jvc2mqtt's installer takes them over (it moves the settings and the HA token across):
+
+```bash
+git clone https://github.com/A7QG59F2/jvc2mqtt /opt/jvc2mqtt/src && /opt/jvc2mqtt/src/install.sh
+```

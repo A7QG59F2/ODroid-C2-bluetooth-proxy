@@ -18,12 +18,19 @@ HA_URL="http://homeassistant.local:8123/lovelace/0"
 
 # ─── System ─────────────────────────────────────────────────────────────────
 # Local time zone, a name under /usr/share/zoneinfo such as
-# "America/Indiana/Indianapolis". The JVC radio's clock is set from this board,
-# so it must be right. Empty = keep the system's zone (DietPi sets it on first
+# "America/Indiana/Indianapolis". The kiosk's clock follows it, and so does the
+# JVC radio's when jvc2mqtt runs here. Empty = keep the system's zone (DietPi sets it on first
 # boot from AUTO_SETUP_TIMEZONE). --configure asks for it.
 TIMEZONE=""
 
+# ─── Bluetooth (TP-Link UB500) ──────────────────────────────────────────────
+# Firmware, BlueZ, powered on at boot. Needed by the proxy below and by
+# jvc2mqtt (https://github.com/A7QG59F2/jvc2mqtt, the JVC car radio).
+ENABLE_BLUETOOTH="1"
+
 # ─── Bluetooth proxy (denvera/bt-proxy) ─────────────────────────────────────
+# Needs ENABLE_BLUETOOTH. Leave it off on a board running jvc2mqtt: its
+# constant BLE scanning stops the dongle from connecting to the radio.
 ENABLE_BT_PROXY="1"
 # Name shown in Home Assistant (lowercase, letters/numbers/dashes). Must be
 # unique per board. Empty = odroid-c2-<last 4 hex of the Ethernet MAC>.
@@ -82,34 +89,3 @@ WIFI_COUNTRY="US"
 # Use only the 5 GHz band, so Wi-Fi doesn't fight the Bluetooth dongle on 2.4 GHz
 WIFI_5GHZ_ONLY="1"
 WIFI_DISABLE_POWERSAVE="1"
-
-# ─── JVC KD-SX38MBT (Bluetooth Classic / SPP) ───────────────────────────────
-# Installs the probe tool in /opt/odroid-ha/jvc (protocol: jvc/PROTOCOL.md).
-# The MQTT bridge comes later. Needs the UB500.
-ENABLE_JVC_TOOLS="0"
-# The radio's Bluetooth address (bluetoothctl devices). Also used by radio audio.
-JVC_MAC=""
-# RFCOMM channel of the JVC Remote (SPP) service. Found with jvc-probe.py scan/listen.
-JVC_CHANNEL="16"
-
-# ─── Radio audio (Music Assistant player through the JVC radio) ─────────────
-# Squeezelite → BlueALSA → Bluetooth (A2DP) → the radio. Music Assistant finds
-# the player once its "Squeezelite (slimproto)" provider is added. Needs the
-# UB500 and JVC_MAC; works best with ENABLE_BT_PROXY="0" (BLE scanning blocks
-# connecting to the radio).
-ENABLE_RADIO_AUDIO="0"
-# Player name in Music Assistant (no spaces)
-RADIO_AUDIO_NAME="Car-Radio"
-# Music Assistant host, only if auto-discovery doesn't find it. Empty = auto.
-RADIO_AUDIO_SERVER=""
-# How often to try reconnecting the radio's audio while it's off (seconds)
-RADIO_RECONNECT_SECONDS="15"
-# The radio's display (play state, track) and its play/pause/next/previous
-# buttons follow this Home Assistant media_player. Needs a long-lived access
-# token, which --configure asks for and keeps in /etc/odroid-ha/ha-token
-# (never in this file). Empty = media_player.<RADIO_AUDIO_NAME, lowercased,
-# dashes as underscores>, e.g. media_player.car_radio.
-RADIO_HA_ENTITY=""
-# Home Assistant's address for the API, e.g. "http://192.168.1.3:8123".
-# Empty = the scheme, host and port of HA_URL.
-HA_API_URL=""

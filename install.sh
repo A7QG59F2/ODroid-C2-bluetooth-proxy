@@ -19,7 +19,6 @@ REPO_URL="https://github.com/A7QG59F2/ODroid-C2-bluetooth-proxy"
 BT_PROXY_REPO="https://github.com/denvera/bt-proxy.git"
 CONF_DIR=/etc/odroid-ha
 CONF="$CONF_DIR/odroid-ha.conf"
-HA_TOKEN_FILE="$CONF_DIR/ha-token"
 APP_DIR=/opt/odroid-ha
 BTP_DIR=/opt/bt-proxy
 WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
@@ -43,8 +42,7 @@ load_conf() {
     # several C2s talk to the same Home Assistant.
     BOARD_ID=$( { tr -d ':\n' </sys/class/net/eth0/address | tail -c 4; } 2>/dev/null || true)
     BOARD_ID=${BOARD_ID:-0000}
-    : "${ENABLE_BT_PROXY:=1}" "${ENABLE_WIFI:=1}" "${ENABLE_KIOSK:=1}" "${ENABLE_JVC_TOOLS:=0}"
-    : "${ENABLE_RADIO_AUDIO:=0}" "${RADIO_AUDIO_NAME:=Car-Radio}" "${RADIO_AUDIO_SERVER:=}" "${JVC_MAC:=}"
+    : "${ENABLE_BLUETOOTH:=1}" "${ENABLE_BT_PROXY:=1}" "${ENABLE_WIFI:=1}" "${ENABLE_KIOSK:=1}"
     : "${BT_PROXY_NAME:=odroid-c2-$BOARD_ID}"
     : "${BT_PROXY_FRIENDLY_NAME:=Odroid C2 Bluetooth Proxy $BOARD_ID}"
     : "${WIFI_SSID:=}" "${WIFI_COUNTRY:=US}" "${WIFI_5GHZ_ONLY:=1}" "${WIFI_DISABLE_POWERSAVE:=1}"
@@ -54,12 +52,18 @@ load_conf() {
 }
 on() { [ "${!1:-0}" = "1" ]; }
 onoff() { on "$1" && echo on || echo off; }
-bt_needed() { on ENABLE_BT_PROXY || on ENABLE_JVC_TOOLS || on ENABLE_RADIO_AUDIO; }
+bt_needed() { on ENABLE_BLUETOOTH || on ENABLE_BT_PROXY; }
+# The JVC radio parts moved to their own repo (jvc2mqtt) on 2026-11-17. A board
+# that had them keeps running them until jvc2mqtt's installer takes them over.
+JVC2MQTT_URL="https://github.com/A7QG59F2/jvc2mqtt"
+old_radio_parts() {
+    [ ! -d /etc/jvc2mqtt ] && { [ -f /etc/systemd/system/odroid-ha-radio-link.service ] || [ -d "$APP_DIR/jvc" ]; }
+}
 
 # ─── Health report ────────────────────────────────────────────────────────────
 check() {
     echo "── Features ──"
-    echo "  bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)   jvc: $(onoff ENABLE_JVC_TOOLS)   radio-audio: $(onoff ENABLE_RADIO_AUDIO)"
+    echo "  bluetooth: $(onoff ENABLE_BLUETOOTH)   bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)"
     echo "── Hardware ──"
     lsusb 2>/dev/null | grep -Ei '2357:0604|148f:5572|0bda|touch|hid' | sed 's/^/  /' || echo "  (lsusb shows none of the expected devices)"
     if bt_needed; then
@@ -87,20 +91,9 @@ check() {
     if bt_needed; then
         printf "  %-10s %s\n" bluetooth "$(systemctl is-active bluetooth 2>/dev/null || true)"
     fi
-    if on ENABLE_RADIO_AUDIO; then
-        printf "  %-10s %s\n" bluealsa "$(systemctl is-active bluealsa 2>/dev/null || true)"
-        printf "  %-10s %s\n" radio-link "$(systemctl is-active odroid-ha-radio-link 2>/dev/null || true)"
-        printf "  %-10s %s\n" "radio A2DP" "$(bluealsa-aplay -L 2>/dev/null | grep -qi "DEV=$JVC_MAC,PROFILE=a2dp" && echo connected || echo 'not connected (radio off or out of range?)')"
-        printf "  %-10s %s\n" squeezelite "$(systemctl is-active squeezelite 2>/dev/null || true)"
-        printf "  %-10s %s\n" "MA server" "$(ss -tn 2>/dev/null | grep -q ':3483 ' && echo connected || echo 'not connected (add the Squeezelite provider in Music Assistant)')"
-        if [ -s "$HA_TOKEN_FILE" ]; then
-            printf "  %-10s %s\n" radio-avrcp "$(systemctl is-active odroid-ha-radio-avrcp 2>/dev/null || true)"
-        else
-            printf "  %-10s %s\n" radio-avrcp "off (no Home Assistant token; odroid-ha-install --configure)"
-        fi
-    fi
     if on ENABLE_BT_PROXY; then
-        printf "  %-10s %s\n" bt-proxy "$(systemctl is-active bt-proxy 2>/dev/null || true)"
+        printf "  %-10s %s
+" bt-proxy "$(systemctl is-active bt-proxy 2>/dev/null || true)"
         printf "  %-10s %s\n" "port 6053" "$(ss -ltn 2>/dev/null | grep -q ':6053 ' && echo listening || echo 'not listening')"
     fi
     if on ENABLE_KIOSK; then
@@ -110,8 +103,10 @@ check() {
             printf "  %-10s %s\n" "a11y bus" "$(pgrep -f at-spi-bus-launcher >/dev/null && echo running || echo 'not running')"
         fi
     fi
-    if on ENABLE_JVC_TOOLS; then
-        printf "  %-10s %s\n" jvc "$([ -x "$APP_DIR/jvc/jvc-probe.py" ] && echo 'jvc-probe installed' || echo 'jvc-probe missing')"
+    if [ -d /etc/jvc2mqtt ]; then
+        printf "  %-10s %s\n" "JVC radio" "jvc2mqtt installed (jvc2mqtt-check)"
+    elif old_radio_parts; then
+        printf "  %-10s %s\n" "JVC radio" "old odroid-ha radio parts still running; install $JVC2MQTT_URL"
     fi
     echo "── Temperature ──"
     for z in /sys/class/thermal/thermal_zone*/temp; do
@@ -222,22 +217,6 @@ ask_str() {  # $1: variable  $2: question
     [ -n "$ans" ] && printf -v "$var" '%s' "$ans"
     set_conf "$var" "${!var:-}"
 }
-# Home Assistant long-lived token for the radio's track display and buttons.
-# Kept only in its own root-only file, never in the config.
-read_ha_token() {
-    local change=y tok
-    echo "  The radio can show Music Assistant's track and use its buttons with a Home"
-    echo "  Assistant long-lived access token (HA → your profile → Security → Long-lived"
-    echo "  access tokens). Empty = skip; the radio then just shows STOP."
-    if [ -s "$HA_TOKEN_FILE" ]; then
-        read -rp "  A token is already saved. Change it? [y/N] " change
-    fi
-    case "${change,,}" in y|yes) ;; *) return 0 ;; esac
-    read -rsp "  Token: " tok; echo
-    [ -n "$tok" ] || return 0
-    (umask 077; printf '%s\n' "$tok" >"$HA_TOKEN_FILE")
-    chmod 600 "$HA_TOKEN_FILE"
-}
 system_tz() { readlink -f /etc/localtime 2>/dev/null | sed 's|^.*/zoneinfo/||'; }
 configure() {
     [ -t 0 ] || die "--configure needs a terminal (use: ssh -t root@<odroid> odroid-ha-install --configure)"
@@ -251,7 +230,12 @@ configure() {
         warn "'$TIMEZONE' isn't a known zone. Names are listed under /usr/share/zoneinfo."
         TIMEZONE=$(system_tz)
     done
-    ask_yn ENABLE_BT_PROXY "Home Assistant Bluetooth proxy (TP-Link UB500)?"
+    ask_yn ENABLE_BLUETOOTH "Bluetooth dongle (TP-Link UB500)?"
+    if on ENABLE_BLUETOOTH; then
+        ask_yn ENABLE_BT_PROXY "  Home Assistant Bluetooth proxy on it?"
+    else
+        ENABLE_BT_PROXY=0; set_conf ENABLE_BT_PROXY 0
+    fi
     if on ENABLE_BT_PROXY; then
         ask_str BT_PROXY_NAME "  Name in Home Assistant (lowercase, unique per board)"
         BT_PROXY_NAME=$(echo "$BT_PROXY_NAME" | tr 'A-Z_ ' 'a-z--' | tr -cd 'a-z0-9-')
@@ -278,25 +262,9 @@ configure() {
         ask_yn ONSCREEN_KEYBOARD "  On-screen keyboard?"
         on ONSCREEN_KEYBOARD && ask_yn OSK_FLOATING_BUTTON "  Floating button to open the keyboard by hand?"
     fi
-    ask_yn ENABLE_JVC_TOOLS "JVC KD-SX38MBT car receiver tools (needs the UB500)?"
-    ask_yn ENABLE_RADIO_AUDIO "Play Music Assistant through the JVC radio over Bluetooth (needs the UB500)?"
-    if on ENABLE_RADIO_AUDIO; then
-        ask_str RADIO_AUDIO_NAME "  Player name in Music Assistant (no spaces)"
-        RADIO_AUDIO_NAME=$(echo "$RADIO_AUDIO_NAME" | tr ' ' '-' | tr -cd 'A-Za-z0-9._-')
-        RADIO_AUDIO_NAME=${RADIO_AUDIO_NAME:-Car-Radio}
-        set_conf RADIO_AUDIO_NAME "$RADIO_AUDIO_NAME"
-        read_ha_token
-    fi
-    if on ENABLE_JVC_TOOLS || on ENABLE_RADIO_AUDIO; then
-        while true; do
-            ask_str JVC_MAC "  Radio's Bluetooth address (bluetoothctl devices)"
-            [[ $JVC_MAC =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] && break
-            warn "That isn't a Bluetooth address like 88:E0:34:B7:98:6C."
-        done
-    fi
-    if on ENABLE_BT_PROXY && on ENABLE_RADIO_AUDIO; then
-        warn "The BLE proxy's constant scanning stops the dongle from connecting to the radio."
-        warn "Radio audio only reconnects reliably with the proxy off."
+    if on ENABLE_BT_PROXY && [ -d /etc/jvc2mqtt ]; then
+        warn "The BLE proxy's constant scanning stops the dongle from connecting to the JVC radio (jvc2mqtt)."
+        warn "The radio parts only reconnect reliably with the proxy off."
     fi
     echo
     say "Saved to $CONF. Change it any time with:  odroid-ha-install --configure"
@@ -316,6 +284,15 @@ if [ ! -f "$CONF" ]; then
         NEW_CONF=1
     fi
 fi
+# ENABLE_BLUETOOTH is new (2026-11-17): the dongle used to be set up whenever the
+# proxy or the JVC parts were on, so keep it on for boards that had any of them.
+if ! grep -q '^ENABLE_BLUETOOTH=' "$CONF"; then
+    BT_WAS=$( (set +u
+               # shellcheck source=/dev/null
+               . "$CONF"
+               [ "${ENABLE_BT_PROXY:-1}${ENABLE_JVC_TOOLS:-0}${ENABLE_RADIO_AUDIO:-0}" = 000 ] && echo 0 || echo 1) )
+    set_conf ENABLE_BLUETOOTH "$BT_WAS"
+fi
 # Settings added to the repo after this board was set up: append them with
 # their example defaults so they're visible and editable. Existing values stay.
 ADDED=""
@@ -334,23 +311,23 @@ if [ "${1:-}" = "--configure" ] || { [ "$NEW_CONF" = 1 ] && [ -t 0 ]; }; then
 elif [ "$NEW_CONF" = 1 ]; then
     warn "Created $CONF with defaults. Run  odroid-ha-install --configure  to choose this board's parts."
 fi
-BT_NEEDED=0; bt_needed && BT_NEEDED=1
-if on ENABLE_RADIO_AUDIO && [ -z "$JVC_MAC" ]; then
-    warn "ENABLE_RADIO_AUDIO is on but JVC_MAC is empty; radio audio is skipped. Set it with  odroid-ha-install --configure"
-    ENABLE_RADIO_AUDIO=0
+if on ENABLE_BT_PROXY && ! on ENABLE_BLUETOOTH; then
+    warn "ENABLE_BT_PROXY needs the Bluetooth dongle; turning ENABLE_BLUETOOTH on"
+    ENABLE_BLUETOOTH=1; set_conf ENABLE_BLUETOOTH 1
 fi
+BT_NEEDED=0; bt_needed && BT_NEEDED=1
 
 exec > >(tee -a "$LOG") 2>&1
 say "Install started $(date)  (log: $LOG)"
-say "Features: bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK), jvc $(onoff ENABLE_JVC_TOOLS), radio-audio $(onoff ENABLE_RADIO_AUDIO)"
+say "Features: bluetooth $(onoff ENABLE_BLUETOOTH), bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK)"
 
 # Basic sanity: is this an Odroid C2?
 if ! grep -qi 'odroid-c2\|odroid c2\|meson-gxbb' /proc/device-tree/model /proc/device-tree/compatible 2>/dev/null; then
     warn "This doesn't look like an Odroid C2 ($(tr -d '\0' </proc/device-tree/model 2>/dev/null || echo unknown)). Continuing anyway."
 fi
 
-# Local time zone: the kiosk clock and the JVC radio's clock (set from this
-# board on every connect) both follow it. DietPi only sets it on first boot;
+# Local time zone: the kiosk clock follows it, and so does the JVC radio's
+# clock when jvc2mqtt runs on this board (set on every connect). DietPi only sets it on first boot;
 # an empty TIMEZONE leaves whatever the system has.
 if [ -z "$TIMEZONE" ]; then
     :
@@ -383,7 +360,6 @@ if [ "${#FW[@]}" -gt 0 ]; then
 fi
 [ "$BT_NEEDED" = 1 ] && $APT install bluez
 on ENABLE_WIFI && $APT install wpasupplicant
-on ENABLE_RADIO_AUDIO && $APT install bluez-alsa-utils libasound2-plugin-bluez alsa-utils squeezelite python3-dbus python3-gi
 
 if on ENABLE_KIOSK; then
     $APT install --no-install-recommends \
@@ -398,7 +374,7 @@ if on ENABLE_KIOSK; then
     fi
 fi
 
-# ─── 2. Bluetooth (UB500): for the proxy and/or the JVC tools ────────────────
+# ─── 2. Bluetooth (UB500): for the proxy and/or jvc2mqtt ────────────────────
 if [ "$BT_NEEDED" = 1 ]; then
     say "Enabling Bluetooth"
     # DietPi can blacklist Bluetooth via dietpi-config; undo that
@@ -669,103 +645,16 @@ else
     fi
 fi
 
-# ─── 6. JVC tools ─────────────────────────────────────────────────────────────
-if on ENABLE_JVC_TOOLS; then
-    say "Installing JVC probe tool"
-    install -d "$APP_DIR/jvc"
-    install -m 755 "$SRC_DIR/jvc/jvc-probe.py" "$APP_DIR/jvc/jvc-probe.py"
-    install -m 644 "$SRC_DIR/jvc/README.md" "$APP_DIR/jvc/README.md"
-else
-    rm -rf "$APP_DIR/jvc"
+# ─── 6. JVC radio: moved to jvc2mqtt ─────────────────────────────────────────
+# Its installer takes over the old odroid-ha radio services and settings, so
+# leave them running here until then.
+if old_radio_parts; then
+    warn "The JVC radio parts moved to $JVC2MQTT_URL and are no longer updated here."
+    warn "They keep running as they are. To take them over (settings and token move across):"
+    warn "  git clone $JVC2MQTT_URL /opt/jvc2mqtt/src && /opt/jvc2mqtt/src/install.sh"
 fi
 
-# ─── 7. Radio audio: Music Assistant player through the JVC radio ────────────
-# Squeezelite (found by Music Assistant's Squeezelite provider) plays into
-# BlueALSA, which streams A2DP to the radio. radio-link.sh reconnects the
-# radio's audio whenever it comes back (car started).
-SQ_DEFAULTS=/etc/default/squeezelite
-RADIO_UNIT=/etc/systemd/system/odroid-ha-radio-link.service
-AVRCP_UNIT=/etc/systemd/system/odroid-ha-radio-avrcp.service
-rm_avrcp_unit() {
-    [ -f "$AVRCP_UNIT" ] || return 0
-    systemctl disable --now odroid-ha-radio-avrcp 2>/dev/null || true
-    rm -f "$AVRCP_UNIT"
-    systemctl daemon-reload
-}
-if on ENABLE_RADIO_AUDIO; then
-    say "Setting up radio audio (player \"$RADIO_AUDIO_NAME\")"
-    on ENABLE_BT_PROXY && warn "The BLE proxy's scanning blocks connecting to the radio; consider turning the proxy off."
-    install -d "$APP_DIR/radio"
-    install -m 755 "$SRC_DIR/radio/radio-link.sh" "$APP_DIR/radio/radio-link.sh"
-    cat >"$RADIO_UNIT" <<EOF
-# Generated by odroid-ha install.sh
-[Unit]
-Description=Keep the JVC radio's Bluetooth audio connected
-After=bluetooth.service bluealsa.service
-Wants=bluealsa.service
-
-[Service]
-ExecStart=$APP_DIR/radio/radio-link.sh
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    # Keep DietPi's original once, so switching the part off can put it back
-    [ -f "$SQ_DEFAULTS" ] && [ ! -f "$SQ_DEFAULTS.dietpi-orig" ] && cp "$SQ_DEFAULTS" "$SQ_DEFAULTS.dietpi-orig"
-    # -C 5: let go of the radio 5 s after playback stops. -r/-R: the A2DP link
-    # runs at 48 kHz, so resample (only) tracks that aren't 48 kHz.
-    SQ_NAME=$(echo "$RADIO_AUDIO_NAME" | tr ' ' '-' | tr -cd 'A-Za-z0-9._-')
-    cat >"$SQ_DEFAULTS" <<EOF
-# Generated by odroid-ha install.sh: Music Assistant → Squeezelite → BlueALSA → JVC radio
-ARGS="-W -C 5 -n ${SQ_NAME:-Car-Radio} -o bluealsa:DEV=$JVC_MAC,PROFILE=a2dp -r 48000 -R mE${RADIO_AUDIO_SERVER:+ -s $RADIO_AUDIO_SERVER}"
-EOF
-    # The radio's track display and buttons (AVRCP), mirrored from Home
-    # Assistant's media_player for the Music Assistant player. Needs a token.
-    install -m 755 "$SRC_DIR/radio/avrcp-player.py" "$APP_DIR/radio/avrcp-player.py"
-    if [ -s "$HA_TOKEN_FILE" ]; then
-        chmod 600 "$HA_TOKEN_FILE"
-        cat >"$AVRCP_UNIT" <<EOF
-# Generated by odroid-ha install.sh
-[Unit]
-Description=Show Music Assistant's track on the JVC radio and take its buttons (AVRCP)
-After=bluetooth.service network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/bin/python3 $APP_DIR/radio/avrcp-player.py
-Restart=always
-RestartSec=15
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    else
-        warn "No Home Assistant token in $HA_TOKEN_FILE: the radio will show STOP and its buttons won't control Music Assistant."
-        rm_avrcp_unit
-    fi
-    systemctl daemon-reload
-    systemctl enable --now bluealsa
-    systemctl enable odroid-ha-radio-link squeezelite
-    systemctl restart odroid-ha-radio-link squeezelite
-    if [ -f "$AVRCP_UNIT" ]; then
-        systemctl enable odroid-ha-radio-avrcp
-        systemctl restart odroid-ha-radio-avrcp
-    fi
-else
-    rm_avrcp_unit
-    if [ -f "$RADIO_UNIT" ]; then
-        systemctl disable --now odroid-ha-radio-link 2>/dev/null || true
-        rm -f "$RADIO_UNIT"
-        systemctl daemon-reload
-        systemctl disable --now squeezelite bluealsa 2>/dev/null || true
-        [ -f "$SQ_DEFAULTS.dietpi-orig" ] && mv -f "$SQ_DEFAULTS.dietpi-orig" "$SQ_DEFAULTS"
-    fi
-    rm -rf "$APP_DIR/radio"
-fi
-
-# ─── 8. Convenience commands ──────────────────────────────────────────────────
+# ─── 7. Convenience commands ──────────────────────────────────────────────────
 install -m 755 "$SRC_DIR/install.sh" /usr/local/sbin/odroid-ha-install
 cat > /usr/local/bin/odroid-ha-check <<'EOF'
 #!/bin/sh
@@ -785,9 +674,8 @@ fi
 if on ENABLE_KIOSK; then
     echo "  - Kiosk login: see README.md \"Home Assistant side\" (trusted_networks for ${IP:-<odroid-ip>})."
 fi
-if on ENABLE_RADIO_AUDIO; then
-    echo "  - Music Assistant → Settings → Providers: add \"Squeezelite (slimproto)\"; the player"
-    echo "    \"$RADIO_AUDIO_NAME\" appears once the radio is on and connected."
+if on ENABLE_BLUETOOTH && ! on ENABLE_BT_PROXY && [ ! -d /etc/jvc2mqtt ]; then
+    echo "  - JVC car radio on this dongle: install $JVC2MQTT_URL"
 fi
 cat <<EOF
   - Add or remove parts:  odroid-ha-install --configure
