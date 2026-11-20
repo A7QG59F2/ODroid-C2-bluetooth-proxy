@@ -9,6 +9,7 @@ One **DietPi** install on an **Odroid C2** that is, at the same time (each part 
 1. a **dashboard kiosk** on a MAGEX 10.1" HDMI touch screen: tty1 autologin as user `kiosk` → `startx` → `kiosk/kiosk-session.sh` → Chromium `--kiosk`, with the **Onboard** on-screen keyboard
 2. the **Bluetooth (UB500) groundwork** (`ENABLE_BLUETOOTH`): firmware, BlueZ, powered on at boot. The **JVC car radio** integration that uses it lives in its own repo, **A7QG59F2/jvc2mqtt** (moved out 2026-11-17); don't add radio code back here.
 3. optionally a **Home Assistant Bluetooth proxy**: `denvera/bt-proxy` natively (uv venv in `/opt/bt-proxy`) as `bt-proxy.service`, ESPHome Native API on port 6053, plaintext only. **Off on the first board**: its constant BLE scanning makes outgoing BR/EDR connects from the RTL8761BU fail with "Host is down", so it can't coexist with jvc2mqtt (an already-open link survives scanning).
+4. optionally a **Winamp player for Music Assistant** (`ENABLE_WINAMP`, needs the kiosk): the kiosk opens Webamp from `127.0.0.1:8590` instead of the HA dashboard, in portrait (main, EQ, playlist stacked; page zoom = screen width / 275). `winamp/www/ma-winamp.js` gives Webamp a custom media class and middleware so its controls drive one MA player over MA's WebSocket API (`/ws`, `auth` with a long-lived token), and pushes MA's queue/volume/shuffle/repeat/DSP back into Webamp's redux store. The EQ maps to a 10-band `parametric_eq` (+ `balance`) filter in the player's MA DSP config. With `WINAMP_LOCAL_PLAYER` the board is also an MA player via squeezelite (`odroid-squeezelite.service`, Ethernet MAC as player ID).
 
 The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so PowerShell for anything on the PC side.
 
@@ -34,8 +35,9 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
   - `toolkit-accessibility=true`
 
   Onboard settings are **system dconf defaults** in `/etc/dconf/db/odroidha.d/00-onboard` (profile `/etc/dconf/profile/user`), with `force-to-top` (no WM) and `touch-input='none'`. Chrome-extension keyboards were rejected: HA inputs live in shadow DOM, and the old MV2 extensions are dead. Adam's earlier DietPi kiosk attempt failed on exactly this keyboard, so treat it as important.
+- **Winamp player = Webamp as a remote, not a browser audio player.** Audio is played by an MA player (squeezelite here); the page only sends commands. Webamp is pinned (`WEBAMP_VERSION` + tarball sha256 in install.sh) and fetched from registry.npmjs.org at install; it relies on Webamp's private `__customMediaClass` / `__customMiddlewares` options, so check `winamp/www/ma-winamp.js` still works before bumping the version. The MA token lives only in `/etc/odroid-ha/music-assistant.token` (0600) and the generated `config.js` (0640 root:kiosk, served on localhost only), never in odroid-ha.conf.
 - No window manager. Chromium runs fullscreen under bare Xorg (`xserver-xorg-legacy`, `Xwrapper.config` `allowed_users=console`).
-- **Several boards, optional parts.** Adam is flashing multiple C2s; some lack the UB500, the RT5572 or the JVC. Each part has an `ENABLE_*` switch (`ENABLE_BLUETOOTH`, `ENABLE_BT_PROXY`, `ENABLE_WIFI`, `ENABLE_KIOSK`), chosen by the user through `--configure`, never by auto-detection. Switching a part off must undo what it set up, and `--check` only reports enabled parts. Proxy names default to `odroid-c2-<last 4 hex of eth0 MAC>` so boards don't collide in HA. The Wi-Fi password is only read from the terminal and stored as the derived 64-hex key; never write plaintext anywhere.
+- **Several boards, optional parts.** Adam is flashing multiple C2s; some lack the UB500, the RT5572 or the JVC. Each part has an `ENABLE_*` switch (`ENABLE_BLUETOOTH`, `ENABLE_BT_PROXY`, `ENABLE_WIFI`, `ENABLE_KIOSK`, `ENABLE_WINAMP`), chosen by the user through `--configure`, never by auto-detection. Switching a part off must undo what it set up, and `--check` only reports enabled parts. Proxy names default to `odroid-c2-<last 4 hex of eth0 MAC>` so boards don't collide in HA. The Wi-Fi password is only read from the terminal and stored as the derived 64-hex key; never write plaintext anywhere.
 
 ## Status (as of 2026-11-11)
 
@@ -54,6 +56,8 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 - Still to check: the touch matrix after rotation, which Onboard `OSK_TOUCH_INPUT` mode suits the MAGEX panel, and the final `HA_URL` dashboard path (still the placeholder `/lovelace/0`).
 
 ## Next work
+
+0. **Winamp player (added 2026-11-20, not yet tried on the hardware).** Tested only in headless Chromium against a fake MA server. On the board check: squeezelite's sound output (HDMI to the MAGEX, `WINAMP_AUDIO_DEVICE`), touch on the EQ/volume sliders after rotation, that the DSP save doesn't cause annoying gaps, and performance of the 4× zoom under software rendering. MA here is 2.10.12 (HA add-on).
 
 1. **Move the first board's radio parts to jvc2mqtt**: `odroid-ha-install`, then jvc2mqtt's `install.sh`; check that `odroid-ha-check` no longer reports the old radio parts.
 2. **Home Assistant side for the kiosk.**

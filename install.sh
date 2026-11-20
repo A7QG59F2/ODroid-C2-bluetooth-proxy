@@ -1,6 +1,7 @@
 #!/bin/bash
 # =============================================================================
 #  Odroid C2  →  Home Assistant Bluetooth proxy  +  dashboard kiosk
+#               (or a Winamp-style Music Assistant player on the touch screen)
 #  Target: DietPi (Debian) on Odroid C2
 #          TP-Link UB500 (RTL8761BU)  ·  TL-WN821N (RT5572)  ·  MAGEX 10.1" touch
 #
@@ -24,6 +25,12 @@ BTP_DIR=/opt/bt-proxy
 WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
 WLAN_IFACE_CONF=/etc/network/interfaces.d/wlan0.conf
 LOG=/var/log/odroid-ha-install.log
+WA_DIR=/opt/odroid-winamp
+WA_PORT=8590
+MA_TOKEN_FILE="$CONF_DIR/music-assistant.token"
+# Webamp (MIT, github.com/captbaritone/webamp) from the npm registry, pinned
+WEBAMP_VERSION=2.3.1
+WEBAMP_TGZ_SHA256=d45a3d46cbd3e4bdd39a9b71656d87341ddac48b4a4c4a61356ec065a6bba7c0
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -49,10 +56,13 @@ load_conf() {
     : "${HA_URL:=http://homeassistant.local:8123/lovelace/0}"
     : "${TIMEZONE:=}"
     : "${ONSCREEN_KEYBOARD:=1}" "${OSK_FLOATING_BUTTON:=0}"
+    : "${ENABLE_WINAMP:=0}" "${MA_URL:=http://homeassistant.local:8095}" "${WINAMP_LOCAL_PLAYER:=1}"
+    : "${WINAMP_PLAYER_NAME:=Odroid C2 $BOARD_ID}" "${WINAMP_PLAYER:=}" "${WINAMP_AUDIO_DEVICE:=}" "${WINAMP_SKIN:=}"
 }
 on() { [ "${!1:-0}" = "1" ]; }
 onoff() { on "$1" && echo on || echo off; }
 bt_needed() { on ENABLE_BLUETOOTH || on ENABLE_BT_PROXY; }
+winamp_on() { on ENABLE_KIOSK && on ENABLE_WINAMP; }
 # The JVC radio parts moved to their own repo (jvc2mqtt) on 2026-11-17. A board
 # that had them keeps running them until jvc2mqtt's installer takes them over.
 JVC2MQTT_URL="https://github.com/A7QG59F2/jvc2mqtt"
@@ -63,7 +73,7 @@ old_radio_parts() {
 # ─── Health report ────────────────────────────────────────────────────────────
 check() {
     echo "── Features ──"
-    echo "  bluetooth: $(onoff ENABLE_BLUETOOTH)   bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)"
+    echo "  bluetooth: $(onoff ENABLE_BLUETOOTH)   bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)   winamp: $(winamp_on && echo on || echo off)"
     echo "── Hardware ──"
     lsusb 2>/dev/null | grep -Ei '2357:0604|148f:5572|0bda|touch|hid' | sed 's/^/  /' || echo "  (lsusb shows none of the expected devices)"
     if bt_needed; then
@@ -101,6 +111,14 @@ check() {
         if on ONSCREEN_KEYBOARD; then
             printf "  %-10s %s\n" keyboard "$(pgrep -f 'bin/onboard' >/dev/null && echo 'onboard running' || echo 'onboard not running')"
             printf "  %-10s %s\n" "a11y bus" "$(pgrep -f at-spi-bus-launcher >/dev/null && echo running || echo 'not running')"
+        fi
+    fi
+    if winamp_on; then
+        printf "  %-10s %s\n" winamp-web "$(systemctl is-active odroid-winamp-web 2>/dev/null || true)"
+        printf "  %-10s %s\n" "MA server" "$(curl -fsS -m 3 -o /dev/null "$MA_URL" && echo "reachable ($MA_URL)" || echo "NOT reachable ($MA_URL)")"
+        printf "  %-10s %s\n" "MA token" "$([ -s "$MA_TOKEN_FILE" ] && echo saved || echo 'MISSING (odroid-ha-install --configure)')"
+        if on WINAMP_LOCAL_PLAYER; then
+            printf "  %-10s %s\n" squeezelite "$(systemctl is-active squeezelite 2>/dev/null || true) (\"$WINAMP_PLAYER_NAME\")"
         fi
     fi
     if [ -d /etc/jvc2mqtt ]; then
@@ -217,6 +235,16 @@ ask_str() {  # $1: variable  $2: question
     [ -n "$ans" ] && printf -v "$var" '%s' "$ans"
     set_conf "$var" "${!var:-}"
 }
+read_ma_token() {
+    local t
+    echo "    Music Assistant token: in Music Assistant's web UI open your user profile and"
+    echo "    create a long-lived token (an admin user's, so the equalizer can change DSP settings)."
+    read -rsp "    Paste it here (not echoed): " t; echo
+    if [ -n "$t" ]; then
+        (umask 077; printf '%s\n' "$t" >"$MA_TOKEN_FILE")
+        chmod 600 "$MA_TOKEN_FILE"
+    fi
+}
 system_tz() { readlink -f /etc/localtime 2>/dev/null | sed 's|^.*/zoneinfo/||'; }
 configure() {
     [ -t 0 ] || die "--configure needs a terminal (use: ssh -t root@<odroid> odroid-ha-install --configure)"
@@ -258,6 +286,26 @@ configure() {
     fi
     ask_yn ENABLE_KIOSK "Dashboard kiosk on the touch screen (MAGEX 10.1\")?"
     if on ENABLE_KIOSK; then
+        ask_yn ENABLE_WINAMP "  Winamp music player (Music Assistant) on the screen instead of the dashboard?"
+    else
+        ENABLE_WINAMP=0; set_conf ENABLE_WINAMP 0
+    fi
+    if winamp_on; then
+        ask_str MA_URL "    Music Assistant URL (port 8095)"
+        local change=y
+        if [ -s "$MA_TOKEN_FILE" ]; then
+            read -rp "    A Music Assistant token is already saved. Change it? [y/N] " change
+        fi
+        case "${change,,}" in y|yes) read_ma_token ;; esac
+        ask_yn WINAMP_LOCAL_PLAYER "    Play the music on this Odroid (squeezelite player for Music Assistant)?"
+        if on WINAMP_LOCAL_PLAYER; then
+            ask_str WINAMP_PLAYER_NAME "      Player name in Music Assistant"
+            ask_str WINAMP_AUDIO_DEVICE "      ALSA output device (empty = default; list with: squeezelite -l)"
+        fi
+        ask_str WINAMP_PLAYER "    Music Assistant player to control (empty = this Odroid's own)"
+        [ "${SCREEN_ROTATION:-normal}" = normal ] && SCREEN_ROTATION=left
+        ask_str SCREEN_ROTATION "    Screen rotation (left or right = portrait)"
+    elif on ENABLE_KIOSK; then
         ask_str HA_URL "  Dashboard URL"
         ask_yn ONSCREEN_KEYBOARD "  On-screen keyboard?"
         on ONSCREEN_KEYBOARD && ask_yn OSK_FLOATING_BUTTON "  Floating button to open the keyboard by hand?"
@@ -315,11 +363,14 @@ if on ENABLE_BT_PROXY && ! on ENABLE_BLUETOOTH; then
     warn "ENABLE_BT_PROXY needs the Bluetooth dongle; turning ENABLE_BLUETOOTH on"
     ENABLE_BLUETOOTH=1; set_conf ENABLE_BLUETOOTH 1
 fi
+if on ENABLE_WINAMP && ! on ENABLE_KIOSK; then
+    warn "ENABLE_WINAMP shows the player on the kiosk screen; it does nothing with ENABLE_KIOSK=0"
+fi
 BT_NEEDED=0; bt_needed && BT_NEEDED=1
 
 exec > >(tee -a "$LOG") 2>&1
 say "Install started $(date)  (log: $LOG)"
-say "Features: bluetooth $(onoff ENABLE_BLUETOOTH), bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK)"
+say "Features: bluetooth $(onoff ENABLE_BLUETOOTH), bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK), winamp $(winamp_on && echo on || echo off)"
 
 # Basic sanity: is this an Odroid C2?
 if ! grep -qi 'odroid-c2\|odroid c2\|meson-gxbb' /proc/device-tree/model /proc/device-tree/compatible 2>/dev/null; then
@@ -373,6 +424,7 @@ if on ENABLE_KIOSK; then
             dconf-cli dconf-gsettings-backend gsettings-desktop-schemas dbus-bin
     fi
 fi
+winamp_on && on WINAMP_LOCAL_PLAYER && $APT install --no-install-recommends squeezelite alsa-utils
 
 # ─── 2. Bluetooth (UB500): for the proxy and/or jvc2mqtt ────────────────────
 if [ "$BT_NEEDED" = 1 ]; then
@@ -645,6 +697,102 @@ else
     fi
 fi
 
+# ─── 5b. Winamp player for Music Assistant (on the kiosk screen) ─────────────
+# Webamp (a Winamp 2 clone) served from localhost; kiosk-session.sh opens it
+# instead of the dashboard. Its buttons, playlist and equalizer drive a Music
+# Assistant player over MA's WebSocket API (winamp/www/ma-winamp.js). The
+# music itself plays on that player: by default squeezelite on this board.
+if winamp_on; then
+    say "Setting up the Winamp player"
+    install -d -m 755 "$WA_DIR" "$WA_DIR/www"
+    TGZ="$WA_DIR/webamp-$WEBAMP_VERSION.tgz"
+    if ! echo "$WEBAMP_TGZ_SHA256  $TGZ" | sha256sum -c --status 2>/dev/null; then
+        curl -fsSL -o "$TGZ.part" "https://registry.npmjs.org/webamp/-/webamp-$WEBAMP_VERSION.tgz" \
+            || die "Couldn't download Webamp from registry.npmjs.org"
+        echo "$WEBAMP_TGZ_SHA256  $TGZ.part" | sha256sum -c --status || { rm -f "$TGZ.part"; die "Webamp download failed its checksum"; }
+        mv "$TGZ.part" "$TGZ"
+    fi
+    tar -xzf "$TGZ" -O package/built/webamp.bundle.min.js >"$WA_DIR/www/webamp.bundle.min.js"
+    install -m 644 "$SRC_DIR/winamp/www/index.html" "$SRC_DIR/winamp/www/ma-winamp.js" "$WA_DIR/www/"
+    install -d -m 755 "$WA_DIR/www/skins"
+
+    # Settings for the page. The token is only readable by root and the kiosk user.
+    [ -s "$MA_TOKEN_FILE" ] || warn "No Music Assistant token saved yet: run  odroid-ha-install --configure"
+    WA_TARGET="$WINAMP_PLAYER"
+    [ -z "$WA_TARGET" ] && on WINAMP_LOCAL_PLAYER && WA_TARGET="$WINAMP_PLAYER_NAME"
+    WA_SKIN="$WINAMP_SKIN"
+    # A bare file name means a skin dropped into /opt/odroid-winamp/www/skins
+    case "$WA_SKIN" in ""|*/*) ;; *) WA_SKIN="skins/$WA_SKIN" ;; esac
+    MA_TOKEN="$(cat "$MA_TOKEN_FILE" 2>/dev/null || true)" MA_URL="$MA_URL" WA_TARGET="$WA_TARGET" WA_SKIN="$WA_SKIN" \
+        python3 -c 'import json, os
+cfg = {"maUrl": os.environ["MA_URL"], "token": os.environ["MA_TOKEN"].strip(),
+       "player": os.environ["WA_TARGET"], "skin": os.environ["WA_SKIN"]}
+print("// Generated by odroid-ha install.sh from /etc/odroid-ha/odroid-ha.conf")
+print("window.WINAMP_CONFIG = " + json.dumps(cfg) + ";")' >"$WA_DIR/www/config.js.tmp"
+    chown "root:$KIOSK_USER" "$WA_DIR/www/config.js.tmp"; chmod 640 "$WA_DIR/www/config.js.tmp"
+    mv "$WA_DIR/www/config.js.tmp" "$WA_DIR/www/config.js"
+
+    cat > /etc/systemd/system/odroid-winamp-web.service <<EOF
+[Unit]
+Description=Odroid Winamp page for the kiosk (localhost only)
+
+[Service]
+User=$KIOSK_USER
+ExecStart=/usr/bin/python3 -m http.server $WA_PORT --bind 127.0.0.1 --directory $WA_DIR/www
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    if on WINAMP_LOCAL_PLAYER; then
+        # Our own unit rather than the package's: fixed name, and the Ethernet MAC
+        # as player ID so MA keeps seeing the same player when the board is on Wi-Fi.
+        SL_NAME=$(printf '%s' "$WINAMP_PLAYER_NAME" | tr -cd 'A-Za-z0-9 ._-')
+        SL_MAC=$(cat /sys/class/net/eth0/address 2>/dev/null || true)
+        SL_ARGS="-n \"${SL_NAME:-Odroid C2 $BOARD_ID}\" -C 5"
+        [ -n "$SL_MAC" ] && SL_ARGS="$SL_ARGS -m $SL_MAC"
+        [ -n "$WINAMP_AUDIO_DEVICE" ] && SL_ARGS="$SL_ARGS -o $(printf '%s' "$WINAMP_AUDIO_DEVICE" | tr -cd 'A-Za-z0-9:,=._-')"
+        cat > /etc/systemd/system/odroid-squeezelite.service <<EOF
+[Unit]
+Description=Squeezelite: this Odroid as a Music Assistant player
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+DynamicUser=yes
+SupplementaryGroups=audio
+# -C 5 releases the sound card after 5 s of silence, for anything else using it
+ExecStart=/usr/bin/squeezelite $SL_ARGS
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl disable --now squeezelite 2>/dev/null || true
+        systemctl daemon-reload
+        systemctl enable odroid-squeezelite
+        systemctl restart odroid-squeezelite
+    else
+        systemctl disable --now odroid-squeezelite 2>/dev/null || true
+        rm -f /etc/systemd/system/odroid-squeezelite.service
+    fi
+    systemctl daemon-reload
+    systemctl enable odroid-winamp-web
+    systemctl restart odroid-winamp-web
+else
+    for u in odroid-winamp-web odroid-squeezelite; do
+        if [ -f "/etc/systemd/system/$u.service" ]; then
+            systemctl disable --now "$u" 2>/dev/null || true
+            rm -f "/etc/systemd/system/$u.service"
+        fi
+    done
+    systemctl daemon-reload
+    rm -rf "$WA_DIR"
+fi
+
 # ─── 6. JVC radio: moved to jvc2mqtt ─────────────────────────────────────────
 # Its installer takes over the old odroid-ha radio services and settings, so
 # leave them running here until then.
@@ -671,7 +819,13 @@ if on ENABLE_BT_PROXY; then
     echo "  - Home Assistant → Settings → Devices & Services: ESPHome should discover"
     echo "    \"$BT_PROXY_FRIENDLY_NAME\". If not: Add Integration → ESPHome → host ${IP:-<odroid-ip>}, port 6053."
 fi
-if on ENABLE_KIOSK; then
+if winamp_on; then
+    if on WINAMP_LOCAL_PLAYER; then
+        echo "  - Music Assistant → Settings → Providers: make sure \"Squeezelite\" (slimproto) is added;"
+        echo "    \"$WINAMP_PLAYER_NAME\" then shows up as a player. Queue music to it from MA or HA."
+    fi
+    [ -s "$MA_TOKEN_FILE" ] || echo "  - Save a Music Assistant token:  odroid-ha-install --configure"
+elif on ENABLE_KIOSK; then
     echo "  - Kiosk login: see README.md \"Home Assistant side\" (trusted_networks for ${IP:-<odroid-ip>})."
 fi
 if on ENABLE_BLUETOOTH && ! on ENABLE_BT_PROXY && [ ! -d /etc/jvc2mqtt ]; then

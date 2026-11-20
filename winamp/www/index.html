@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Odroid Winamp</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #000; color: #0f0;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #app { position: fixed; inset: 0; }
+  /* The kiosk scales the page up ~4x (device scale factor); keep the skin's
+     pixel art crisp instead of blurred. */
+  #webamp, #webamp * { image-rendering: pixelated; }
+  #status {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    font: 6px/1.4 monospace; text-align: center; padding: 1px 0;
+    background: #000; color: #00e000; z-index: 100000;
+  }
+  #status:empty { display: none; }
+  #status.err { color: #ff5050; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="status">Starting…</div>
+<!-- Written by install.sh from /etc/odroid-ha/odroid-ha.conf -->
+<script src="config.js"></script>
+<!-- Webamp (MIT, github.com/captbaritone/webamp), downloaded by install.sh -->
+<script src="webamp.bundle.min.js"></script>
+<script src="ma-winamp.js"></script>
+</body>
+</html>

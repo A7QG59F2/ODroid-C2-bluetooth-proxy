@@ -22,6 +22,11 @@ SCREEN_ALWAYS_ON="${SCREEN_ALWAYS_ON:-1}"
 SCREEN_BLANK_SECONDS="${SCREEN_BLANK_SECONDS:-600}"
 CHROMIUM_ZOOM="${CHROMIUM_ZOOM:-1.0}"
 CHROMIUM_EXTRA_FLAGS="${CHROMIUM_EXTRA_FLAGS:-}"
+# Winamp mode: the Music Assistant player page instead of the HA dashboard
+WINAMP=0
+[ "${ENABLE_WINAMP:-0}" = "1" ] && WINAMP=1
+MA_URL="${MA_URL:-http://homeassistant.local:8095}"
+WINAMP_URL="http://127.0.0.1:8590/"   # odroid-winamp-web.service (install.sh)
 
 log() { echo "[kiosk] $*"; logger -t ha-kiosk "$*" 2>/dev/null || true; }
 
@@ -39,6 +44,13 @@ fi
 # screen size, read after rotation.
 SCREEN_WH=$(xrandr --query 2>/dev/null | awk '/^Screen 0:/{for(i=1;i<=NF;i++) if($i=="current"){w=$(i+1); h=$(i+3); sub(",","",h); print w "," h; exit}}')
 SCREEN_WH="${SCREEN_WH:-1920,1200}"
+
+if [ "$WINAMP" = 1 ]; then
+    # Webamp's windows are 275 px wide (main 116 + equalizer 116 + playlist).
+    # Zoom the page so they fill the screen's width, as long as at least the
+    # minimum playlist height still fits.
+    CHROMIUM_ZOOM=$(echo "$SCREEN_WH" | awk -F, '{z = $1 / 275; if ($2 / z < 348) z = $2 / 348; printf "%.4f", z}')
+fi
 
 # Rotate touch input to match the screen
 case "$SCREEN_ROTATION" in
@@ -65,9 +77,17 @@ else
     xset dpms "$SCREEN_BLANK_SECONDS" "$SCREEN_BLANK_SECONDS" "$SCREEN_BLANK_SECONDS"
 fi
 
-# ── Wait (max ~2 min) for Home Assistant so we don't show an error page ────
+# ── Wait (max ~2 min) for the page's server so we don't show an error page ─
+URL="$HA_URL"
+WAIT_FOR="$HA_URL"
+if [ "$WINAMP" = 1 ]; then
+    URL="$WINAMP_URL"
+    WAIT_FOR="$MA_URL"
+    # Nothing to type into on the player
+    ONSCREEN_KEYBOARD=0
+fi
 for _ in $(seq 1 60); do
-    curl -fsS -m 3 -o /dev/null "$HA_URL" && break
+    curl -fsS -m 3 -o /dev/null "$WAIT_FOR" && break
     sleep 2
 done
 
@@ -103,10 +123,10 @@ while true; do
     if [ -f "$PREFS" ]; then
         sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"Crashed"/"exit_type":"Normal"/' "$PREFS"
     fi
-    log "starting chromium -> $HA_URL"
+    log "starting chromium -> $URL (zoom $CHROMIUM_ZOOM)"
     # shellcheck disable=SC2086
     chromium \
-        --kiosk "$HA_URL" \
+        --kiosk "$URL" \
         --start-fullscreen \
         --window-position=0,0 \
         --window-size="$SCREEN_WH" \

@@ -61,6 +61,32 @@ CHROMIUM_ZOOM="1.0"
 # Extra Chromium flags. If you get a blank/white window, add: --disable-gpu
 CHROMIUM_EXTRA_FLAGS=""
 
+# ─── Winamp player for Music Assistant (needs ENABLE_KIOSK) ──────────────────
+# Shows Webamp (a Winamp 2 clone) on the touch screen instead of the HA
+# dashboard: main window, equalizer and playlist stacked for portrait, so set
+# SCREEN_ROTATION to "left" or "right". It remote-controls one Music Assistant
+# player: play/pause/seek/volume, the queue as the playlist, and the equalizer
+# as that player's MA DSP settings.
+ENABLE_WINAMP="0"
+# Music Assistant's own web address (the add-on listens on port 8095).
+# Its access token isn't kept here: --configure asks for it and stores it in
+# /etc/odroid-ha/music-assistant.token (readable by root only).
+MA_URL="http://homeassistant.local:8095"
+# Make this Odroid a Music Assistant player itself (squeezelite), playing
+# through its own sound output. MA needs its Squeezelite provider for that.
+WINAMP_LOCAL_PLAYER="1"
+# Its name in Music Assistant. Empty = "Odroid C2 <last 4 hex of the Ethernet MAC>".
+WINAMP_PLAYER_NAME=""
+# ALSA output for squeezelite, e.g. "hw:CARD=AMLGXBB,DEV=0" or a USB DAC.
+# Empty = the default device. List them on the board with:  squeezelite -l
+WINAMP_AUDIO_DEVICE=""
+# Music Assistant player the Winamp screen controls, by name or player ID.
+# Empty = this Odroid's own squeezelite player.
+WINAMP_PLAYER=""
+# Winamp skin: a .wsz file name in /opt/odroid-winamp/www/skins, or a URL that
+# allows cross-origin downloads. Empty = the classic base skin.
+WINAMP_SKIN=""
+
 # ─── On-screen keyboard (Onboard) ───────────────────────────────────────────
 # Pops up by itself when a text field in Home Assistant is tapped, and hides
 # again when it loses focus.

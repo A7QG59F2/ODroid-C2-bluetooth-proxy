@@ -6,6 +6,7 @@ One **DietPi** install on an Odroid C2 that does two jobs, plus the Bluetooth gr
 |---|---|
 | **Bluetooth proxy** for Home Assistant | [`denvera/bt-proxy`](https://github.com/denvera/bt-proxy) runs natively as a systemd service. HA sees it as an ESPHome Bluetooth proxy, with active connections supported. |
 | **Wall/desk dashboard kiosk** | Auto-login on tty1 → X → Chromium in kiosk mode on the MAGEX 10.1" touch screen, with an **on-screen keyboard** that pops up on its own. Restarts itself if it crashes. |
+| **…or a Winamp player** for Music Assistant | The same kiosk shows Webamp (a Winamp 2 clone) in portrait instead: main window, equalizer and playlist, driving a Music Assistant player. Optionally the Odroid is that player too (squeezelite). See [Winamp player](#winamp-player-for-music-assistant). |
 | **Bluetooth dongle** for other software | Firmware + BlueZ for the UB500. The JVC car radio integration runs on it from its own repo, [**jvc2mqtt**](https://github.com/A7QG59F2/jvc2mqtt). |
 
 ## Hardware this targets
@@ -42,6 +43,7 @@ Put the UB500 on a short USB extension, away from the Wi-Fi dongle.
      Network name (SSID, empty = leave Wi-Fi unconfigured) []
      Wi-Fi password for MyNetwork:            (not echoed, never stored in plain text)
    Dashboard kiosk on the touch screen (MAGEX 10.1")? [Y/n]
+     Winamp music player (Music Assistant) on the screen instead of the dashboard? [y/N]
      Dashboard URL [http://homeassistant.local:8123/lovelace/0]
    ```
 
@@ -86,7 +88,8 @@ Each step runs only for the parts that are switched on.
    - hides the cursor
    - starts the on-screen keyboard (Onboard) with its accessibility bus
    - waits for HA, then runs Chromium `--kiosk` in a restart loop
-6. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply; `--configure` to re-answer the questions).
+6. Winamp player (if on): downloads Webamp (pinned version, checksum-checked) into `/opt/odroid-winamp`, serves it on `127.0.0.1:8590` (`odroid-winamp-web.service`) and, with `WINAMP_LOCAL_PLAYER`, runs squeezelite as **`odroid-squeezelite.service`**.
+7. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply; `--configure` to re-answer the questions).
 
 It's safe to re-run as often as you like. Install log: `/var/log/odroid-ha-install.log`.
 
@@ -143,6 +146,42 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 - **Covers the field you're typing in:** set `OSK_EDGE="top"`, or keep text inputs near the top of the dashboard.
 - **Turn it off:** `ONSCREEN_KEYBOARD="0"`.
 
+## Winamp player for Music Assistant
+
+With `ENABLE_WINAMP="1"` the kiosk shows [Webamp](https://github.com/captbaritone/webamp) (an open-source Winamp 2
+clone) instead of the Home Assistant dashboard. The main window, equalizer and playlist are stacked to fill the screen
+in portrait (`SCREEN_ROTATION="left"` or `"right"`), scaled up about 4× with the pixels kept sharp. Windows can't be
+dragged or closed by accident.
+
+<img src="docs/winamp-portrait.png" alt="Winamp main window, equalizer and playlist stacked in portrait" width="300">
+
+It is a remote for one Music Assistant player. The audio never goes through the browser:
+
+| Winamp | Music Assistant |
+|---|---|
+| Play / pause / stop / ⏮ ⏭, seek bar | the player's queue |
+| Volume slider | the player's volume |
+| Shuffle, repeat | the queue's shuffle and repeat (all/off) |
+| Playlist | the queue, kept in sync. Double-tap plays an entry; REM removes entries; REM → "Remove all" clears the queue |
+| Equalizer (10 bands + preamp, ON) and the balance slider | a 10-band parametric EQ and a balance filter in the player's **DSP settings**, saved about a second after the sliders stop moving |
+
+Music is picked in Music Assistant or Home Assistant as usual; the Winamp screen shows and controls whatever is queued.
+The ADD/eject "open file" buttons do nothing (there are no files on the kiosk), drag-to-reorder isn't mirrored, and the
+visualizer stays flat because no audio passes through the page.
+
+**Setup:**
+
+1. In Music Assistant's web UI, open your user profile and create a **long-lived token**. Use an admin user, so the
+   equalizer is allowed to change DSP settings. Tokens expire after a year.
+2. `odroid-ha-install --configure`, answer **yes** to the Winamp question and paste the token (it's stored in
+   `/etc/odroid-ha/music-assistant.token`, root only, and handed to the page on localhost).
+3. To play the music **on this Odroid**, keep `WINAMP_LOCAL_PLAYER="1"`: squeezelite turns the board into a player
+   named `WINAMP_PLAYER_NAME`. In Music Assistant, **Settings → Providers** must include **Squeezelite**. Sound goes
+   to the default ALSA device (HDMI to the MAGEX screen); pick another with `WINAMP_AUDIO_DEVICE` (`squeezelite -l`
+   lists them). To control a different player instead (a speaker group, say), set `WINAMP_PLAYER` to its name.
+4. Optional skin: drop a `.wsz` into `/opt/odroid-winamp/www/skins/` and set `WINAMP_SKIN="name.wsz"`, then re-run
+   the installer.
+
 ## Settings (`/etc/odroid-ha/odroid-ha.conf`)
 
 | Key | Default | Meaning |
@@ -161,6 +200,13 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `ONSCREEN_KEYBOARD` | `1` | Onboard keyboard with auto-show |
 | `OSK_LAYOUT` / `OSK_THEME` / `OSK_EDGE` | `Compact` / `Droid` / `bottom` | Keyboard look and position |
 | `OSK_FLOATING_BUTTON` / `OSK_TOUCH_INPUT` | `0` / `none` | Manual-open button; touch handling |
+| `ENABLE_WINAMP` | `0` | Winamp player on the kiosk screen instead of the dashboard |
+| `MA_URL` | `http://homeassistant.local:8095` | Music Assistant's address (token via `--configure`, never in this file) |
+| `WINAMP_LOCAL_PLAYER` | `1` | Run squeezelite so this board is a Music Assistant player |
+| `WINAMP_PLAYER_NAME` | `Odroid C2 <mac4>` | That player's name in Music Assistant |
+| `WINAMP_AUDIO_DEVICE` | default | squeezelite's ALSA output (`squeezelite -l`) |
+| `WINAMP_PLAYER` | this board's player | Music Assistant player to control (name or ID) |
+| `WINAMP_SKIN` | classic | `.wsz` in `/opt/odroid-winamp/www/skins`, or a URL |
 | `WIFI_SSID` | empty | Network to join (password via `--configure`, never stored in plain text) |
 | `WIFI_COUNTRY` / `WIFI_5GHZ_ONLY` | `US` / `1` | Regulatory domain; stay off 2.4 GHz |
 | `WIFI_DISABLE_POWERSAVE` | `1` | Keep RT5572 awake |
@@ -179,6 +225,9 @@ dmesg | grep -iE 'rtl|bluetooth|rt2800'  # driver + firmware messages
 - **Blank/white Chromium window**: set `CHROMIUM_EXTRA_FLAGS="--disable-gpu"` and re-run.
 - **Touch is offset after rotating**: re-run after changing `SCREEN_ROTATION`, or reboot.
 - **Dashboard is sluggish**: simplify it. The Mali-450 can't accelerate modern Chromium well.
+- **Winamp says "Music Assistant refused the token"**: the token expired or was revoked; make a new one and run `odroid-ha-install --configure`.
+- **Winamp says "Player … not found"**: check the name in Music Assistant (`WINAMP_PLAYER` / `WINAMP_PLAYER_NAME`), that the Squeezelite provider is enabled, and `journalctl -u odroid-squeezelite`.
+- **Winamp equalizer has no effect**: the token's user needs permission to change player settings (an admin), and some players (e.g. certain groups) don't support DSP.
 - **Leave the kiosk to get a shell on the screen**: Ctrl+Alt+F2 switches to another console.
 
 ## JVC KD-SX38MBT car radio
