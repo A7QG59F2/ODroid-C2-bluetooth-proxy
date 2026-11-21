@@ -154,17 +154,25 @@ Winamp windows, so the radio's buttons, Home Assistant and the MA app all stay i
 | Winamp | Music Assistant |
 |---|---|
 | Play / pause / stop / previous / next, seek bar | The player's queue (next and previous follow MA's own shuffle order) |
-| Playlist window | The queue. Double-tap plays an entry; *Remove* deletes it from the queue; dragging moves it; *Remove all* clears the queue |
-| Shuffle / repeat | The queue's shuffle and repeat (repeat on = repeat all) |
+| Playlist window | The queue. Made for touch: drag to scroll, tap to select, double-tap to play, hold for a track's menu (play, add to playlist, move to top, remove), drag the **≡** handle to move a track, **+** adds it to an MA playlist (an existing one or a new one) |
+| Shuffle / repeat | The queue's shuffle and repeat (the button is repeat all; *Settings* also has repeat one) |
 | Volume | The player's volume |
-| Equalizer (10 bands + preamp, on/off, presets) | A 10-band parametric EQ in the player's DSP settings (Settings → Players → the player → DSP), ±12 dB, at Winamp's frequencies. It shows up there and is kept when you change other DSP filters |
+| Balance (the fader) | A balance filter in the player's DSP settings |
+| MONO / STEREO (tap them) | Mono on or off: a stereo width 0 filter in the player's DSP settings |
+| Equalizer (10 bands + preamp, on/off; presets in *Settings*) | A 10-band parametric EQ in the player's DSP settings (Settings → Players → the player → DSP), ±12 dB, at Winamp's frequencies. It shows up there and is kept when you change other DSP filters |
 | Eject, *Load list*, the Library button | A picker for MA playlists, albums and radio stations: tap to play, *+ Queue* to add |
 | *Add URL* / *Save list* | Adds a stream URL to the queue / saves the queue as an MA playlist |
 | Visualizer (spectrum and oscilloscope) | The real audio, read from Squeezelite (`-v`, added by a drop-in). Only when the player is this board's Squeezelite (jvc2mqtt's radio player) |
-| The Visualizer button | The same audio full screen, in the skin's visualizer colors. The corner button switches between bars and oscilloscope; tap anywhere else to close |
-| Options → Skins | Every `.wsz` in `/etc/odroid-ha/winamp-skins` (the choice is remembered) |
+| The Visualizer button | The same audio full screen as **Milkdrop** (butterchurn, 100 presets), or as bars or an oscilloscope in the skin's colors. Tap for the controls: previous/next preset, style, close |
+| The Settings button | What Winamp keeps in right-click menus, which don't work by touch: skin, EQ presets, balance, mono, repeat one, skip ±10 s, save/clear the queue, add a stream URL, and the full-screen visualizer's options |
+| *Settings* → Skin | Every `.wsz` in `/etc/odroid-ha/winamp-skins` (the choice is remembered) |
 
-Balance does nothing, since Music Assistant players have no balance control.
+Balance, mono and the EQ are kept together with any other DSP filters you set up for the player in MA.
+
+**Milkdrop on the C2** runs on the CPU: the Mali-450 has no WebGL 2, so Chromium renders it with SwiftShader
+(the kiosk adds `--enable-unsafe-swiftshader` while the Winamp remote is on). Expect about 5–10 frames a second,
+drawn small and scaled up. A preset that runs slower than the *Skip presets under* setting is skipped from then on;
+*Retry skipped* in Settings brings them back. The bars and oscilloscope styles run smoothly.
 
 **Set it up:**
 

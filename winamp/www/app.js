@@ -5,8 +5,11 @@
 // Music Assistant's state is written back into Webamp's store. The visualizer
 // reads real samples from Squeezelite, streamed by the server.
 import Webamp from "./webamp.mjs";
+import { $, el, sheet, ask, toast } from "./ui.js";
+import { initTouchPlaylist } from "./touch.js";
+import { initFullVis } from "./milkdrop.js";
+import { initSettings } from "./settings.js";
 
-const $ = (s) => document.querySelector(s);
 const cfg = await fetch("config.json").then((r) => r.json()).catch(() => ({}));
 const EQ_BANDS = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000];
 
@@ -100,7 +103,7 @@ class MAMedia {
   timeElapsed() { return bridge.elapsedNow(); }
   duration() { return bridge.current?.duration || 0; }
   setVolume(v) { if (bridge.live()) bridge.sendVolume(v); }
-  setBalance() {}           // Music Assistant players have no balance control
+  setBalance(b) { if (bridge.live()) bridge.sendBalance(b); }   // MA's balance filter
   setPreamp() { if (bridge.live()) bridge.eqChanged(); }
   setEqBand() { if (bridge.live()) bridge.eqChanged(); }
   enableEq() { if (bridge.live()) bridge.eqChanged(); }
@@ -147,6 +150,10 @@ const bridge = {
   lastEqSent: 0,
   eqTimer: 0,
   volTimer: 0,
+  balTimer: 0,
+  lastBalanceSent: 0,
+  sound: { balance: 0, mono: false },   // MA's balance and mono (stereo width 0)
+  repeat: "off",
 
   live() { return this.ready && !this.syncing; },
   store() { return this.webamp.store; },
@@ -164,6 +171,28 @@ const bridge = {
     this.lastVolumeSent = Date.now();
     clearTimeout(this.volTimer);
     this.volTimer = setTimeout(() => fire("volume", { level: Math.round(v) }), 120);
+  },
+  sendBalance(b) {
+    this.lastBalanceSent = Date.now();
+    this.sound.balance = Math.round(b);
+    clearTimeout(this.balTimer);
+    this.balTimer = setTimeout(() => fire("balance", { balance: Math.round(b) }), 250);
+  },
+  setMono(on) {
+    this.sound.mono = !!on;
+    this.showChannels();
+    return fire("mono", { mono: !!on });
+  },
+  // Winamp's MONO / STEREO lights: mono while MA's mono filter is on
+  showChannels() {
+    const cur = this.current;
+    const id = cur && this.idByItem.get(cur.id);
+    if (id == null) return;
+    const t = this.store().getState().tracks[id] || {};
+    this.sync(() => this.dispatch({
+      type: "SET_MEDIA_TAGS", id, title: t.title, artist: t.artist, album: t.album, albumArtUrl: t.albumArtUrl,
+      numberOfChannels: this.sound.mono ? 1 : cur.channels || 2,    // rate and kbps stay as they are
+    }));
   },
   eqChanged() {
     this.lastEqSent = Date.now();
@@ -232,19 +261,20 @@ const bridge = {
         const id = this.idByItem.get(cur.id);
         if (id != null) {
           if (moved) this.dispatch({ type: "BUFFER_TRACK", id });
-          this.dispatch({ type: "SET_MEDIA", id, length: cur.duration || 0, channels: cur.channels || 2 });
+          this.dispatch({ type: "SET_MEDIA", id, length: cur.duration || 0, channels: this.sound.mono ? 1 : cur.channels || 2 });
           // The kbps / kHz boxes and mono/stereo come from the track's tags
           const bps = cur.bitrate > 10000 ? cur.bitrate : (cur.bitrate || 0) * 1000;
           this.dispatch({
             type: "SET_MEDIA_TAGS", id,
             title: cur.title || cur.name, artist: cur.artist || "", album: cur.album || "",
-            sampleRate: cur.rate || 44100, bitrate: bps, numberOfChannels: cur.channels || 2,
+            sampleRate: cur.rate || 44100, bitrate: bps, numberOfChannels: this.sound.mono ? 1 : cur.channels || 2,
           });
         }
       }
       this.current = cur;
       // Play state
       this.queueState = q.state;
+      this.repeat = q.repeat || "off";
       const s = this.store().getState().media.status;
       if (q.state === "playing" && s !== "PLAYING") this.dispatch({ type: "IS_PLAYING" });
       else if (q.state === "paused" && s !== "PAUSED") this.dispatch({ type: "PAUSE" });
@@ -267,7 +297,15 @@ const bridge = {
   },
 
   applyEq(eq, force = false) {
-    if (!eq || (!force && Date.now() - this.lastEqSent < 3000)) return;
+    if (!eq) return;
+    if (eq.mono !== undefined && !!eq.mono !== this.sound.mono) { this.sound.mono = !!eq.mono; this.showChannels(); }
+    if (eq.balance !== undefined && (force || Date.now() - this.lastBalanceSent > 3000)) {
+      this.sound.balance = eq.balance;
+      if (this.store().getState().media.balance !== eq.balance) {
+        this.sync(() => this.dispatch({ type: "SET_BALANCE", balance: eq.balance }));
+      }
+    }
+    if (!force && Date.now() - this.lastEqSent < 3000) return;
     const st = this.store().getState().equalizer;
     this.sync(() => {
       if (st.sliders.preamp !== eq.preamp) this.dispatch({ type: "SET_BAND_VALUE", band: "preamp", value: eq.preamp });
@@ -369,21 +407,6 @@ if (window.top === window) {
 }
 $("#libsearch").oninput =() => { clearTimeout(lib.timer); lib.timer = setTimeout(() => lib.load(), 400); };
 
-// A text prompt in the page (Onboard pops up for it, unlike a browser dialog).
-function ask(question, value = "") {
-  return new Promise((resolve) => {
-    $("#askq").textContent = question;
-    const input = $("#aska");
-    input.value = value;
-    $("#ask").classList.add("open");
-    input.focus();
-    const done = (v) => { $("#ask").classList.remove("open"); input.blur(); resolve(v); };
-    $("#askok").onclick = () => done(input.value.trim() || null);
-    $("#askno").onclick = () => done(null);
-    input.onkeydown = (e) => { if (e.key === "Enter") done(input.value.trim() || null); if (e.key === "Escape") done(null); };
-  });
-}
-
 // Next/previous go to Music Assistant (it knows the shuffle order and radio
 // mode), eject opens the library. Caught before Webamp's own handlers.
 window.addEventListener("click", (e) => {
@@ -398,6 +421,11 @@ window.addEventListener("click", (e) => {
   }
   if (!t || !bridge.ready) return;
   const hit = (sel) => t.closest(sel);
+  if (hit("#webamp #mono, #webamp #stereo")) {     // only lights in Winamp; a switch here
+    e.stopPropagation();
+    bridge.setMono(!!hit("#webamp #mono")).then(() => toast(bridge.sound.mono ? "Mono" : "Stereo"));
+    return;
+  }
   let cmd = null;
   if (hit("#webamp #next, #webamp .playlist-next-button")) cmd = "next";
   else if (hit("#webamp #previous, #webamp .playlist-previous-button")) cmd = "previous";
@@ -426,7 +454,7 @@ let savedSkin = null;
 try { savedSkin = localStorage.getItem(SKIN_KEY); } catch {}
 const skins = cfg.skins || [];
 const byName = skins.find((s) => s.name.toLowerCase() === String(cfg.skin || "").toLowerCase());
-const startSkin = skins.find((s) => s.url === savedSkin) || byName;
+const startSkin = savedSkin === "base" ? null : skins.find((s) => s.url === savedSkin) || byName;
 
 // ─── Layout: main + equalizer on the left, playlist filling the rest ────────
 // (An iframe can start at 0×0 until the dashboard lays it out: wait for a size.)
@@ -518,104 +546,46 @@ new MutationObserver((muts) => {
 }).observe(document.head, { childList: true, subtree: true, characterData: true });
 alwaysFocused();
 
-// ─── Full-screen visualizer ─────────────────────────────────────────────────
-// Its own spectrum and oscilloscope from the same samples, drawn on a small
-// canvas blown up as hard pixels (cheap for the C2's software rendering), in
-// the skin's visualizer colors. Tap to close; the corner button flips mode.
-const fv = {
-  el: $("#fullvis"), canvas: $("#fvcanvas"), mode: "bars", raf: 0, last: 0,
-  N: 2048, bars: 48, levels: null, peaks: null, peakHold: null,
-  open() {
-    this.el.classList.add("open");
-    const px = 8;   // screen pixels per canvas pixel
-    this.canvas.width = Math.floor(window.innerWidth / px);
-    this.canvas.height = Math.floor(window.innerHeight / px);
-    this.levels = new Float32Array(this.bars);
-    this.peaks = new Float32Array(this.bars);
-    this.peakHold = new Float32Array(this.bars);
-    this.raf = requestAnimationFrame((t) => this.frame(t));
-  },
-  close() { this.el.classList.remove("open"); cancelAnimationFrame(this.raf); this.raf = 0; },
-  colors() {
-    const c = bridge.webamp?.store?.getState().display?.skinColors;
-    return c && c.length >= 24 ? c : null;
-  },
-  fft(re, im) {   // in place, radix 2
-    const n = re.length;
-    for (let i = 1, j = 0; i < n; i++) {
-      let bit = n >> 1;
-      for (; j & bit; bit >>= 1) j ^= bit;
-      j ^= bit;
-      if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
-    }
-    for (let len = 2; len <= n; len <<= 1) {
-      const ang = (-2 * Math.PI) / len, wr = Math.cos(ang), wi = Math.sin(ang);
-      for (let i = 0; i < n; i += len) {
-        let cr = 1, ci = 0;
-        for (let k = 0; k < len / 2; k++) {
-          const a = i + k, b = a + len / 2;
-          const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
-          re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
-          const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
-        }
-      }
-    }
-  },
-  frame(t) {
-    this.raf = requestAnimationFrame((tt) => this.frame(tt));
-    if (t - this.last < 33) return;   // ~30 fps
-    this.last = t;
-    const cv = this.canvas, g = cv.getContext("2d"), W = cv.width, H = cv.height;
-    const col = this.colors();
-    const bg = col ? col[0] : "rgb(0,0,0)";
-    g.fillStyle = bg;
-    g.fillRect(0, 0, W, H);
-    const raw = new Uint8Array(this.N);
-    vis.getByteTimeDomainData(raw);
-    if (this.mode === "scope") {
-      g.fillStyle = col ? col[21] : "rgb(255,255,255)";
-      const step = this.N / W;
-      let prev = null;
-      for (let x = 0; x < W; x++) {
-        const y = Math.round(H / 2 + ((raw[Math.floor(x * step)] - 128) / 128) * (H / 2 - 1));
-        const a = prev ?? y, lo = Math.min(a, y), hi = Math.max(a, y);
-        g.fillRect(x, lo, 1, hi - lo + 1);   // join the dots into a line
-        prev = y;
-      }
-      return;
-    }
-    const re = new Float32Array(this.N), im = new Float32Array(this.N);
-    for (let i = 0; i < this.N; i++) re[i] = ((raw[i] - 128) / 128) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (this.N - 1)));
-    this.fft(re, im);
-    const rate = vis.rate || 48000, binHz = rate / this.N, lo = 40, hi = Math.min(16000, rate / 2);
-    const slot = Math.floor(W / this.bars), barW = Math.max(1, slot - 1), x0 = Math.floor((W - slot * this.bars) / 2);
-    for (let b = 0; b < this.bars; b++) {
-      const f1 = lo * (hi / lo) ** (b / this.bars), f2 = lo * (hi / lo) ** ((b + 1) / this.bars);
-      const i1 = Math.max(1, Math.floor(f1 / binHz)), i2 = Math.max(i1 + 1, Math.ceil(f2 / binHz));
-      let m = 0;
-      for (let i = i1; i < i2 && i < this.N / 2; i++) m = Math.max(m, Math.hypot(re[i], im[i]));
-      // dB, -60..0 → 0..1, a little tilt so the highs aren't flat
-      const db = 20 * Math.log10(m / (this.N / 4) + 1e-9) + 6 * Math.log2(f1 / 1000 + 1);
-      const v = Math.min(1, Math.max(0, (db + 60) / 60));
-      this.levels[b] = v > this.levels[b] ? v : Math.max(v, this.levels[b] - 0.04);   // fall slowly
-      if (this.levels[b] >= this.peaks[b]) { this.peaks[b] = this.levels[b]; this.peakHold[b] = 12; }
-      else if (this.peakHold[b] > 0) this.peakHold[b]--;
-      else this.peaks[b] = Math.max(0, this.peaks[b] - 0.015);
-      const h = Math.round(this.levels[b] * (H - 2)), x = x0 + b * slot;
-      for (let y = 0; y < h; y++) {
-        // skin colors 2..17 run from the top of the meter (17 rows) down
-        g.fillStyle = col ? col[2 + Math.min(15, Math.floor((1 - y / H) * 16))] : `hsl(${120 - (y / H) * 120},100%,45%)`;
-        g.fillRect(x, H - 1 - y, barW, 1);
-      }
-      const py = H - 1 - Math.round(this.peaks[b] * (H - 2));
-      if (this.peaks[b] > 0.01) { g.fillStyle = col ? col[23] : "rgb(150,150,150)"; g.fillRect(x, py, barW, 1); }
-    }
-  },
+// ─── Full-screen visualizer (Milkdrop) ──────────────────────────────────────
+const fullVis = initFullVis({ vis, bridge });
+$("#visbtn").onclick = () => fullVis.open();
+
+// ─── Settings (what Webamp hides in right-click menus) ──────────────────────
+const settings = initSettings({ webamp, bridge, fire, fullVis, skins, skinKey: SKIN_KEY });
+$("#setbtn").onclick = () => settings.open();
+
+// ─── Touch playlist: scroll, move by handle, add to a playlist ──────────────
+const itemAt = (index) => {
+  const st = webamp.store.getState();
+  const url = st.tracks[st.playlist.trackOrder[index]]?.url || "";
+  return url.startsWith("ma:") ? bridge.itemById.get(url.slice(3)) : null;
 };
-$("#visbtn").onclick = () => fv.open();
-$("#fvmode").onclick = (e) => { e.stopPropagation(); fv.mode = fv.mode === "bars" ? "scope" : "bars"; };
-fv.el.onclick = () => fv.close();
-setInterval(() => {   // what's playing, along the bottom
-  const c = bridge.current;
-  $("#fvtitle").textContent = c ? [c.artist, c.title || c.name].filter(Boolean).join(" – ") : "";
-}, 1000);
+async function addTo(item) {
+  if (!item?.uri) return toast("This one can't go in a playlist");
+  const add = (args, name) => link.send("add_to_playlist", { uris: [item.uri], ...args })
+    .then(() => toast(`Added to “${name}”`), (e) => toast(e.message));
+  sheet(`Add “${item.title || item.name}” to`, link.send("playlists").then((pls) => [
+    { label: "+ New playlist…", onClick: async () => {
+      const name = await ask("Name of the new Music Assistant playlist:");
+      if (name) add({ name }, name);
+    } },
+    ...pls.map((p) => ({ label: p.name, onClick: () => add({ playlist: p.id }, p.name) })),
+  ]));
+}
+initTouchPlaylist({
+  webamp,
+  itemAt,
+  onPlay: (i) => { const it = itemAt(i); if (it) fire("play_index", { item: it.id }); },
+  onAddTo: (i) => addTo(itemAt(i)),
+  onMove: (from, to) => { const it = itemAt(from); if (it) fire("move", { items: [it.id], shift: to - from }); },
+  onMenu: (i) => {
+    const it = itemAt(i);
+    if (!it) return;
+    sheet([it.artist, it.title || it.name].filter(Boolean).join(" – "), [
+      { label: "Play", onClick: () => fire("play_index", { item: it.id }) },
+      { label: "Add to playlist…", onClick: () => addTo(it) },
+      { label: "Move to top", onClick: () => fire("move", { items: [it.id], shift: -i }) },
+      { label: "Remove from queue", danger: true, onClick: () => fire("delete", { items: [it.id] }) },
+    ]);
+  },
+});

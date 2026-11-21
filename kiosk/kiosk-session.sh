@@ -94,6 +94,13 @@ if [ "$ONSCREEN_KEYBOARD" = "1" ] && command -v onboard >/dev/null; then
     log "on-screen keyboard enabled"
 fi
 
+# ── Milkdrop (the Winamp remote's full-screen visualizer) needs WebGL 2 ──────
+# The Mali-450 only does GLES 2, so WebGL 2 has to run on the CPU (SwiftShader),
+# which Chromium only allows when asked. The kiosk only opens Home Assistant
+# and the local Winamp page, the trusted pages that flag is about.
+GL_FLAGS=""
+[ "${ENABLE_WINAMP:-0}" = "1" ] && GL_FLAGS="--enable-unsafe-swiftshader"
+
 # ── Chromium, restarted if it ever exits or crashes ─────────────────────────
 PROFILE="$HOME/.config/chromium-kiosk"
 mkdir -p "$PROFILE"
@@ -123,6 +130,7 @@ while true; do
         --force-device-scale-factor="$CHROMIUM_ZOOM" \
         --touch-events=enabled \
         $A11Y_FLAGS \
+        $GL_FLAGS \
         $CHROMIUM_EXTRA_FLAGS
     log "chromium exited ($?), restarting in 5s"
     sleep 5

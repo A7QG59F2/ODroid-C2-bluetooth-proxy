@@ -29,6 +29,11 @@ WINAMP_SKIN_DIR="$CONF_DIR/winamp-skins"
 # Webamp (Winamp 2 in HTML5, MIT): pinned release, checked by hash
 WEBAMP_VERSION=2.3.1
 WEBAMP_SHA256=41817e47fdb1f969a74e0202135e72d080d73236f5f0a7709f17b696784e0035
+# Milkdrop for the full-screen visualizer (butterchurn, the engine Webamp uses)
+BUTTERCHURN_VERSION=2.6.7
+BUTTERCHURN_SHA256=4e67421bc18d48fac4a6ff4e69e2778f770737fbdd4e323438da154085b4818d
+BC_PRESETS_VERSION=2.4.7
+BC_PRESETS_SHA256=136c746836aef6dff8a1f6a93ede48c7bbe4da27d2f44de6b59ebc56ffefca10
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -735,19 +740,24 @@ if on ENABLE_WINAMP; then
     install -d "$WINAMP_DIR/www" "$WINAMP_DIR/skins"
     install -d -m 755 "$WINAMP_SKIN_DIR"
     install -m 755 "$SRC_DIR/winamp/winamp-server.py" "$WINAMP_DIR/winamp-server.py"
-    install -m 644 "$SRC_DIR/winamp/www/index.html" "$SRC_DIR/winamp/www/app.js" "$WINAMP_DIR/www/"
-    # Webamp itself: fetched once per version, kept only if the hash matches
-    WEBAMP_JS="$WINAMP_DIR/www/webamp.mjs"
-    if ! echo "$WEBAMP_SHA256  $WEBAMP_JS" | sha256sum -c --status 2>/dev/null; then
-        curl -fsSL -o "$WEBAMP_JS.tmp" "https://cdn.jsdelivr.net/npm/webamp@$WEBAMP_VERSION/built/webamp.bundle.min.mjs" \
-            || warn "Couldn't download Webamp $WEBAMP_VERSION"
-        if echo "$WEBAMP_SHA256  $WEBAMP_JS.tmp" | sha256sum -c --status 2>/dev/null; then
-            mv -f "$WEBAMP_JS.tmp" "$WEBAMP_JS"; chmod 644 "$WEBAMP_JS"
+    for f in index.html app.js ui.js touch.js milkdrop.js settings.js; do
+        install -m 644 "$SRC_DIR/winamp/www/$f" "$WINAMP_DIR/www/"
+    done
+    # Webamp and Milkdrop: fetched once per version, kept only if the hash matches
+    fetch_pinned() {   # url sha256 dest what
+        echo "$2  $3" | sha256sum -c --status 2>/dev/null && return 0
+        curl -fsSL -o "$3.tmp" "$1" || warn "Couldn't download $4"
+        if echo "$2  $3.tmp" | sha256sum -c --status 2>/dev/null; then
+            mv -f "$3.tmp" "$3"; chmod 644 "$3"
         else
-            rm -f "$WEBAMP_JS.tmp"
-            warn "Webamp download missing or its checksum doesn't match; the Winamp page won't load."
+            rm -f "$3.tmp"
+            warn "$4 download missing or its checksum doesn't match."
+            return 1
         fi
-    fi
+    }
+    fetch_pinned "https://cdn.jsdelivr.net/npm/webamp@$WEBAMP_VERSION/built/webamp.bundle.min.mjs"         "$WEBAMP_SHA256" "$WINAMP_DIR/www/webamp.mjs" "Webamp $WEBAMP_VERSION"         || warn "The Winamp page won't load without Webamp."
+    fetch_pinned "https://cdn.jsdelivr.net/npm/butterchurn@$BUTTERCHURN_VERSION/lib/butterchurn.min.js"         "$BUTTERCHURN_SHA256" "$WINAMP_DIR/www/butterchurn.min.js" "butterchurn $BUTTERCHURN_VERSION"         || warn "The full-screen visualizer falls back to bars without Milkdrop."
+    fetch_pinned "https://cdn.jsdelivr.net/npm/butterchurn-presets@$BC_PRESETS_VERSION/lib/butterchurnPresets.min.js"         "$BC_PRESETS_SHA256" "$WINAMP_DIR/www/butterchurnPresets.min.js" "Milkdrop presets $BC_PRESETS_VERSION" || true
     # Skins: any .wsz in $WINAMP_SKIN_DIR shows up under Options → Skins.
     # WINAMP_SKIN_URLS are fetched into it once (an existing file is kept).
     for url in $WINAMP_SKIN_URLS; do

@@ -115,14 +115,31 @@ def find_eq(dsp):
     return None, None
 
 
+def find_type(dsp, kind):
+    """Balance and mono are MA's balance and stereo_width filters (the first of each)."""
+    for i, f in enumerate((dsp or {}).get("filters") or []):
+        if f.get("type") == kind:
+            return i, f
+    return None, None
+
+
 def eq_from_dsp(dsp):
+    """Winamp's sound settings as MA's DSP has them: EQ, balance, mono."""
+    on = bool((dsp or {}).get("enabled"))
+    _, bal = find_type(dsp, "balance")
+    _, width = find_type(dsp, "stereo_width")
+    out = {
+        "balance": round(float(bal.get("balance") or 0)) if bal and bal.get("enabled") and on else 0,
+        "mono": bool(width and width.get("enabled") and on and float(width.get("width", 1)) == 0),
+    }
     _, f = find_eq(dsp)
     if not f:
-        return {"on": False, "preamp": 50, "bands": [50] * len(EQ_FREQS)}
+        return {"on": False, "preamp": 50, "bands": [50] * len(EQ_FREQS), **out}
     return {
-        "on": bool(f.get("enabled")) and bool(dsp.get("enabled")),
+        "on": bool(f.get("enabled")) and on,
         "preamp": db_to_slider(f.get("preamp") or 0),
         "bands": [db_to_slider(b.get("gain", 0)) for b in f["bands"]],
+        **out,
     }
 
 
@@ -161,6 +178,7 @@ def slim_item(it):
         "rate": fmt.get("sample_rate"),
         "bitrate": fmt.get("bit_rate"),
         "channels": fmt.get("channels"),
+        "uri": mi.get("uri"),
     }
 
 
@@ -245,7 +263,7 @@ class MusicAssistant:
         self.error = None
         self._items_task = None
         self._eq_task = None
-        self._eq_wanted = None
+        self._sound_wanted = None
 
     # ── low level ───────────────────────────────────────────────────────────
     async def call(self, command, **args):
@@ -426,34 +444,51 @@ class MusicAssistant:
             except RuntimeError:
                 pass
 
-    # ── equalizer ───────────────────────────────────────────────────────────
-    def set_eq(self, on, preamp, bands):
-        """Debounced: dragging a slider sends many values, MA gets the last."""
-        self._eq_wanted = (bool(on), float(preamp), [float(b) for b in bands][:len(EQ_FREQS)])
+    # ── equalizer, balance, mono (MA's per-player DSP) ─────────────────────
+    def set_sound(self, **changes):
+        """Debounced: dragging a slider sends many values, MA gets the last.
+        changes: eq=(on, preamp, bands), balance=-100..100, mono=bool."""
+        self._sound_wanted = {**(self._sound_wanted or {}), **changes}
         if self._eq_task and not self._eq_task.done():
             return
 
         async def later():
             await asyncio.sleep(0.5)
-            while self._eq_wanted:
-                on, preamp, bands = self._eq_wanted
-                self._eq_wanted = None
+            while self._sound_wanted:
+                want, self._sound_wanted = self._sound_wanted, None
                 dsp = await self.call("config/players/dsp/get", player_id=self.pid) or {}
                 filters = list(dsp.get("filters") or [])
-                i, _ = find_eq(dsp)
-                new = eq_filter(on, preamp, bands)
-                if i is None:
-                    filters.append(new)
-                    i = len(filters) - 1
-                else:
-                    filters[i] = new
-                # DSP as a whole stays on for any other enabled filter the user set up in MA
+                ours = set()
+
+                def put(i, new):
+                    if i is None:
+                        filters.append(new)
+                        i = len(filters) - 1
+                    else:
+                        filters[i] = new
+                    ours.add(i)
+                if "eq" in want:
+                    on, preamp, bands = want["eq"]
+                    put(find_eq({"filters": filters})[0], eq_filter(on, preamp, bands))
+                if "balance" in want:
+                    bal = max(-100.0, min(100.0, float(want["balance"])))
+                    i, f = find_type({"filters": filters}, "balance")
+                    if f or bal:
+                        put(i, {**(f or {}), "type": "balance", "enabled": bal != 0, "balance": bal})
+                if "mono" in want:
+                    mono = bool(want["mono"])
+                    i, f = find_type({"filters": filters}, "stereo_width")
+                    if f or mono:
+                        put(i, {**(f or {}), "type": "stereo_width", "enabled": mono,
+                                "width": 0.0 if mono else 1.0})
+                # DSP as a whole: on for any of ours that is on, and for any other
+                # enabled filter the user set up in MA (if they had DSP on)
+                mine = any(filters[i].get("enabled") for i in ours)
                 others = bool(dsp.get("enabled")) and any(
-                    f.get("enabled") for j, f in enumerate(filters) if j != i)
-                dsp.update(filters=filters, enabled=on or others, preset_id=None)
+                    f.get("enabled") for j, f in enumerate(filters) if j not in ours)
+                dsp.update(filters=filters, enabled=mine or others, preset_id=None)
                 await self.call("config/players/dsp/save", player_id=self.pid, config=dsp)
-                self.eq = {"on": on, "preamp": db_to_slider(slider_to_db(preamp)),
-                           "bands": [db_to_slider(slider_to_db(b)) for b in bands]}
+                self.eq = eq_from_dsp(dsp)
         self._eq_task = asyncio.create_task(later())
 
     # ── commands the browser may send ───────────────────────────────────────
@@ -489,7 +524,30 @@ class MusicAssistant:
                                     queue_item_id=str(item), pos_shift=shift)
             return None
         if cmd == "eq":
-            self.set_eq(a["on"], a["preamp"], a["bands"])
+            self.set_sound(eq=(bool(a["on"]), float(a["preamp"]),
+                               [float(b) for b in a["bands"]][:len(EQ_FREQS)]))
+            return None
+        if cmd == "balance":
+            self.set_sound(balance=float(a["balance"]))
+            return None
+        if cmd == "mono":
+            self.set_sound(mono=bool(a["mono"]))
+            return None
+        if cmd == "playlists":    # ones that can take tracks, for "Add to"
+            res = await self.call("music/playlists/library_items", limit=500, order_by="sort_name")
+            return [{"id": i.get("item_id"), "name": i.get("name")}
+                    for i in res or [] if i.get("is_editable", True)]
+        if cmd == "add_to_playlist":
+            uris = [str(u) for u in a.get("uris") or [] if u]
+            if not uris:
+                raise ValueError("nothing to add")
+            pid = a.get("playlist")
+            if not pid:
+                name = str(a.get("name") or "").strip()[:100]
+                if not name:
+                    raise ValueError("no playlist name")
+                pid = (await self.call("music/playlists/create_playlist", name=name) or {}).get("item_id")
+            await self.call("music/playlists/add_playlist_tracks", db_playlist_id=str(pid), uris=uris)
             return None
         if cmd == "play_media":
             option = a.get("option", "play")
