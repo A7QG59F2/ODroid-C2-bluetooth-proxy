@@ -17,7 +17,9 @@
   html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden;
     font: 18px/1.3 system-ui, "DejaVu Sans", sans-serif; color: var(--text);
     -webkit-user-select: none; user-select: none; touch-action: manipulation; }
-  #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #stage { position: absolute; left: 0; top: 0; }
+  /* Skins are pixel art: scale them up as hard pixels, not smoothed */
+  #webamp, #webamp * { image-rendering: pixelated; }
   /* Bottom left: the space under the main and equalizer windows */
   #status { position: fixed; left: 16px; bottom: 76px; max-width: 40vw; color: var(--dim);
     font-size: 15px; z-index: 1000; }

@@ -388,6 +388,14 @@ function ask(question, value = "") {
 // mode), eject opens the library. Caught before Webamp's own handlers.
 window.addEventListener("click", (e) => {
   const t = e.target instanceof Element ? e.target : null;
+  // Links out (Webamp's logo and "About" menu go to webamp.org): a kiosk has
+  // no back button, so never leave the page.
+  const a = t?.closest("a[href]");
+  if (a && new URL(a.href, location.href).origin !== location.origin) {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
   if (!t || !bridge.ready) return;
   const hit = (sel) => t.closest(sel);
   let cmd = null;
@@ -405,6 +413,7 @@ window.addEventListener("click", (e) => {
 // ─── Skins ──────────────────────────────────────────────────────────────────
 // Remember the skin picked from Options → Skins (Webamp fetches it by URL).
 const SKIN_KEY = "odroid-winamp-skin";
+window.open = () => null;   // same reason: no pop-up tabs on the kiosk
 const realFetch = window.fetch.bind(window);
 window.fetch = (input, init) => {
   const url = typeof input === "string" ? input : input?.url || "";
@@ -432,8 +441,9 @@ window.addEventListener("resize", () => {
     if (Math.abs(window.innerWidth - W) > 40 || Math.abs(window.innerHeight - H) > 40) location.reload();
   }, 1000);
 });
+// Whole-number sizes keep every skin pixel the same size (crisp text)
 const scale = Number(cfg.scale) > 0 ? Number(cfg.scale)
-  : Math.max(1, Math.floor(Math.min(W / 550, H / 232) * 4) / 4);
+  : Math.max(1, Math.floor(Math.min(W / 550, H / 232)));
 const extraHeight = Math.max(0, Math.floor((H / scale - 116) / 29));
 const extraWidth = Math.max(0, Math.floor((W / scale - 550) / 25));
 const stage = $("#stage");
