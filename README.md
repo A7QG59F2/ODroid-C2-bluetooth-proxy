@@ -164,7 +164,7 @@ Winamp windows, so the radio's buttons, Home Assistant and the MA app all stay i
 | *Add URL* / *Save list* | Adds a stream URL to the queue / saves the queue as an MA playlist |
 | Visualizer (spectrum and oscilloscope) | The real audio, read from Squeezelite (`-v`, added by a drop-in). Only when the player is this board's Squeezelite (jvc2mqtt's radio player) |
 | The Visualizer button | The same audio full screen as **Milkdrop** (butterchurn, 100 presets), or as bars or an oscilloscope in the skin's colors. Tap for the controls: previous/next preset, style, close |
-| The Settings button | What Winamp keeps in right-click menus, which don't work by touch: skin, EQ presets, balance, mono, repeat one, skip ±10 s, save/clear the queue, add a stream URL, and the full-screen visualizer's options |
+| The Settings button (and Winamp's own menu buttons) | A full-screen page, made for touch, with what Winamp keeps in its small menus. Sections: Playback (transport, skip, repeat one, shuffle, time display), Playlist (select all/none/invert, remove or keep the selection, add the selection to a playlist, save/clear the queue, stream URL), Sound & EQ (volume, balance, mono, EQ on/off and presets), Skin & look, Visualizer (Milkdrop options and preset list). Winamp's O, I, V, EQ *Presets* and playlist ADD/REM/SEL/MISC/LIST buttons open the matching section; long-presses open nothing |
 | *Settings* → Skin | Every `.wsz` in `/etc/odroid-ha/winamp-skins` (the choice is remembered) |
 
 Balance, mono and the EQ are kept together with any other DSP filters you set up for the player in MA.

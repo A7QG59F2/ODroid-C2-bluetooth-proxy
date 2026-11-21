@@ -673,6 +673,13 @@ class App:
             t.cancel()
 
 
+async def no_cache(_request, response):
+    """Check every file again (a cheap 304 when unchanged): without this the
+    kiosk can keep running an old app.js after an update."""
+    if not isinstance(response, web.WebSocketResponse):
+        response.headers["Cache-Control"] = "no-cache"
+
+
 def main():
     conf = read_conf()
     a = App(conf)
@@ -688,6 +695,7 @@ def main():
     app.router.add_static("/", WWW, append_version=False)
     app.on_startup.append(a.start)
     app.on_cleanup.append(a.stop)
+    app.on_response_prepare.append(no_cache)
     host = conf.get("WINAMP_LISTEN") or "127.0.0.1"
     port = int(conf.get("WINAMP_PORT") or 8099)
     # "localhost" resolves to ::1 first on DietPi, and Chromium doesn't fall back

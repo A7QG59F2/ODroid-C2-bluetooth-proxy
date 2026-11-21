@@ -551,8 +551,38 @@ const fullVis = initFullVis({ vis, bridge });
 $("#visbtn").onclick = () => fullVis.open();
 
 // ─── Settings (what Webamp hides in right-click menus) ──────────────────────
-const settings = initSettings({ webamp, bridge, fire, fullVis, skins, skinKey: SKIN_KEY });
+const itemsOf = (trackIds) => {
+  const st = webamp.store.getState();
+  return trackIds.map((id) => st.tracks[id]?.url || "").filter((u) => u.startsWith("ma:"))
+    .map((u) => bridge.itemById.get(u.slice(3))).filter(Boolean);
+};
+const settings = initSettings({
+  webamp, bridge, fire, fullVis, skins, skinKey: SKIN_KEY, openLibrary: () => lib.open(), addTo, itemsOf,
+});
 $("#setbtn").onclick = () => settings.open();
+
+// Webamp's own menus (tiny pop-ups made for a mouse) open the Settings
+// screen instead, at the matching section. Long-presses (right-click menus)
+// do nothing.
+const MENU_SECTIONS = [
+  ["#webamp #option-context, #webamp #option, #webamp #button-o, #webamp #button-i", "playback"],
+  ["#webamp #button-v", "visualizer"],
+  ["#webamp #presets-context, #webamp #presets", "sound"],
+  ["#webamp .playlist-menu", "playlist"],
+];
+const menuSection = (t) => MENU_SECTIONS.find(([sel]) => t?.closest?.(sel))?.[1];
+for (const type of ["pointerdown", "mousedown", "touchstart", "mouseup", "click"]) {
+  window.addEventListener(type, (e) => {
+    if (menuSection(e.target)) { e.stopPropagation(); if (type !== "touchstart") e.preventDefault(); }
+  }, { capture: true, passive: false });
+}
+window.addEventListener("pointerup", (e) => {
+  const s = menuSection(e.target);
+  if (s) { e.stopPropagation(); settings.open(s); }
+}, true);
+window.addEventListener("contextmenu", (e) => {
+  if (e.target.closest?.("#webamp")) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 
 // ─── Touch playlist: scroll, move by handle, add to a playlist ──────────────
 const itemAt = (index) => {
@@ -560,11 +590,14 @@ const itemAt = (index) => {
   const url = st.tracks[st.playlist.trackOrder[index]]?.url || "";
   return url.startsWith("ma:") ? bridge.itemById.get(url.slice(3)) : null;
 };
-async function addTo(item) {
-  if (!item?.uri) return toast("This one can't go in a playlist");
-  const add = (args, name) => link.send("add_to_playlist", { uris: [item.uri], ...args })
-    .then(() => toast(`Added to “${name}”`), (e) => toast(e.message));
-  sheet(`Add “${item.title || item.name}” to`, link.send("playlists").then((pls) => [
+// "Add to" a Music Assistant playlist: one track or several
+function addTo(items) {
+  const list = (Array.isArray(items) ? items : [items]).filter((it) => it?.uri);
+  if (!list.length) return toast("That can't go in a playlist");
+  const what = list.length === 1 ? `“${list[0].title || list[0].name}”` : `${list.length} tracks`;
+  const add = (args, name) => link.send("add_to_playlist", { uris: list.map((it) => it.uri), ...args })
+    .then(() => toast(`Added ${what} to “${name}”`), (e) => toast(e.message));
+  sheet(`Add ${what} to`, link.send("playlists").then((pls) => [
     { label: "+ New playlist…", onClick: async () => {
       const name = await ask("Name of the new Music Assistant playlist:");
       if (name) add({ name }, name);
