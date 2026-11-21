@@ -632,8 +632,11 @@ def main():
     app.on_cleanup.append(a.stop)
     host = conf.get("WINAMP_LISTEN") or "127.0.0.1"
     port = int(conf.get("WINAMP_PORT") or 8099)
-    log(f"Webamp on http://{host}:{port}/ → Music Assistant {a.ma.base}, player {a.ma.player_want}")
-    web.run_app(app, host=host, port=port, print=None, access_log=None)
+    # "localhost" resolves to ::1 first on DietPi, and Chromium doesn't fall back
+    # to 127.0.0.1 when ::1 refuses, so local-only means both loopbacks.
+    hosts = ["127.0.0.1", "::1"] if host in ("127.0.0.1", "localhost", "::1") else [host]
+    log(f"Webamp on port {port} ({', '.join(hosts)}) → Music Assistant {a.ma.base}, player {a.ma.player_want}")
+    web.run_app(app, host=hosts, port=port, print=None, access_log=None)
 
 
 if __name__ == "__main__":

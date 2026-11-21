@@ -189,6 +189,9 @@ Balance does nothing, since Music Assistant players have no balance control.
 it follows. The status line at the bottom left of the page shows the same errors. If the visualizer runs ahead of
 or behind the music, change `WINAMP_VIS_DELAY_MS`.
 
+**Stuck on a page with no way back** (e.g. an error page): `ssh root@<odroid-ip> pkill -x chromium`. The kiosk restarts
+Chromium on the dashboard within a few seconds.
+
 ## Settings (`/etc/odroid-ha/odroid-ha.conf`)
 
 | Key | Default | Meaning |
