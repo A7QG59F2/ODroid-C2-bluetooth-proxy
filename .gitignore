@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+# Downloaded by install.sh (pinned Webamp release)
+winamp/www/webamp.mjs

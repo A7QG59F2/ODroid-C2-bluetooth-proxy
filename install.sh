@@ -15,7 +15,7 @@
 # =============================================================================
 set -euo pipefail
 
-REPO_URL="https://github.com/A7QG59F2/ODroid-C2-bluetooth-proxy"
+REPO_URL="https://github.com/A7QG59F2/ODroid-C2"
 BT_PROXY_REPO="https://github.com/denvera/bt-proxy.git"
 CONF_DIR=/etc/odroid-ha
 CONF="$CONF_DIR/odroid-ha.conf"
@@ -24,6 +24,11 @@ BTP_DIR=/opt/bt-proxy
 WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
 WLAN_IFACE_CONF=/etc/network/interfaces.d/wlan0.conf
 LOG=/var/log/odroid-ha-install.log
+MA_TOKEN_FILE="$CONF_DIR/ma-token"
+WINAMP_SKIN_DIR="$CONF_DIR/winamp-skins"
+# Webamp (Winamp 2 in HTML5, MIT): pinned release, checked by hash
+WEBAMP_VERSION=2.3.1
+WEBAMP_SHA256=41817e47fdb1f969a74e0202135e72d080d73236f5f0a7709f17b696784e0035
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -49,6 +54,8 @@ load_conf() {
     : "${HA_URL:=http://homeassistant.local:8123/lovelace/0}"
     : "${TIMEZONE:=}"
     : "${ONSCREEN_KEYBOARD:=1}" "${OSK_FLOATING_BUTTON:=0}"
+    : "${ENABLE_WINAMP:=0}" "${WINAMP_PLAYER:=}" "${MA_URL:=}" "${WINAMP_PORT:=8099}" "${WINAMP_LISTEN:=127.0.0.1}"
+    : "${WINAMP_SKIN_URLS:=}"
 }
 on() { [ "${!1:-0}" = "1" ]; }
 onoff() { on "$1" && echo on || echo off; }
@@ -63,7 +70,7 @@ old_radio_parts() {
 # ─── Health report ────────────────────────────────────────────────────────────
 check() {
     echo "── Features ──"
-    echo "  bluetooth: $(onoff ENABLE_BLUETOOTH)   bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)"
+    echo "  bluetooth: $(onoff ENABLE_BLUETOOTH)   bt-proxy: $(onoff ENABLE_BT_PROXY)   wifi: $(onoff ENABLE_WIFI)   kiosk: $(onoff ENABLE_KIOSK)   winamp: $(onoff ENABLE_WINAMP)"
     echo "── Hardware ──"
     lsusb 2>/dev/null | grep -Ei '2357:0604|148f:5572|0bda|touch|hid' | sed 's/^/  /' || echo "  (lsusb shows none of the expected devices)"
     if bt_needed; then
@@ -107,6 +114,16 @@ check() {
         printf "  %-10s %s\n" "JVC radio" "jvc2mqtt installed (jvc2mqtt-check)"
     elif old_radio_parts; then
         printf "  %-10s %s\n" "JVC radio" "old odroid-ha radio parts still running; install $JVC2MQTT_URL"
+    fi
+    if on ENABLE_WINAMP; then
+        if [ -s "$MA_TOKEN_FILE" ]; then
+            printf "  %-10s %s\n" winamp "$(systemctl is-active odroid-ha-winamp 2>/dev/null || true)"
+            printf "  %-10s %s\n" "port $WINAMP_PORT" "$(ss -ltn 2>/dev/null | grep -q ":$WINAMP_PORT " && echo listening || echo 'not listening')"
+            printf "  %-10s %s\n" "MA link" "$(journalctl -u odroid-ha-winamp -n 30 --no-pager -o cat 2>/dev/null | grep -E 'Following player|Music Assistant' | tail -1 || true)"
+        else
+            printf "  %-10s %s\n" winamp "off (no Music Assistant token; odroid-ha-install --configure)"
+        fi
+        printf "  %-10s %s\n" visualizer "$(ls /dev/shm/squeezelite-* >/dev/null 2>&1 && echo 'squeezelite export found' || echo 'no squeezelite export (squeezelite not running, or jvc2mqtt not installed)')"
     fi
     echo "── Temperature ──"
     for z in /sys/class/thermal/thermal_zone*/temp; do
@@ -217,6 +234,22 @@ ask_str() {  # $1: variable  $2: question
     [ -n "$ans" ] && printf -v "$var" '%s' "$ans"
     set_conf "$var" "${!var:-}"
 }
+# Music Assistant long-lived token for the Winamp remote. Kept only in its own
+# root-only file, never in the config.
+read_ma_token() {
+    local change=y tok
+    echo "  The Winamp remote talks to Music Assistant with one of its long-lived tokens"
+    echo "  (Music Assistant web UI → your user profile → create a long-lived token)."
+    if [ -s "$MA_TOKEN_FILE" ]; then
+        read -rp "  A token is already saved. Change it? [y/N] " change
+    fi
+    case "${change,,}" in y|yes) ;; *) return 0 ;; esac
+    read -rsp "  Token: " tok; echo
+    [ -n "$tok" ] || return 0
+    (umask 077; printf '%s
+' "$tok" >"$MA_TOKEN_FILE")
+    chmod 600 "$MA_TOKEN_FILE"
+}
 system_tz() { readlink -f /etc/localtime 2>/dev/null | sed 's|^.*/zoneinfo/||'; }
 configure() {
     [ -t 0 ] || die "--configure needs a terminal (use: ssh -t root@<odroid> odroid-ha-install --configure)"
@@ -261,6 +294,13 @@ configure() {
         ask_str HA_URL "  Dashboard URL"
         ask_yn ONSCREEN_KEYBOARD "  On-screen keyboard?"
         on ONSCREEN_KEYBOARD && ask_yn OSK_FLOATING_BUTTON "  Floating button to open the keyboard by hand?"
+    fi
+    ask_yn ENABLE_WINAMP "Winamp remote for Music Assistant (shown on the kiosk at http://localhost:$WINAMP_PORT)?"
+    if on ENABLE_WINAMP; then
+        WINAMP_PLAYER=${WINAMP_PLAYER:-Car-Radio}
+        ask_str WINAMP_PLAYER "  Music Assistant player it controls (name)"
+        ask_str MA_URL "  Music Assistant address, e.g. http://192.168.1.3:8095 (empty = HA's host, port 8095)"
+        read_ma_token
     fi
     if on ENABLE_BT_PROXY && [ -d /etc/jvc2mqtt ]; then
         warn "The BLE proxy's constant scanning stops the dongle from connecting to the JVC radio (jvc2mqtt)."
@@ -319,7 +359,7 @@ BT_NEEDED=0; bt_needed && BT_NEEDED=1
 
 exec > >(tee -a "$LOG") 2>&1
 say "Install started $(date)  (log: $LOG)"
-say "Features: bluetooth $(onoff ENABLE_BLUETOOTH), bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK)"
+say "Features: bluetooth $(onoff ENABLE_BLUETOOTH), bt-proxy $(onoff ENABLE_BT_PROXY), wifi $(onoff ENABLE_WIFI), kiosk $(onoff ENABLE_KIOSK), winamp $(onoff ENABLE_WINAMP)"
 
 # Basic sanity: is this an Odroid C2?
 if ! grep -qi 'odroid-c2\|odroid c2\|meson-gxbb' /proc/device-tree/model /proc/device-tree/compatible 2>/dev/null; then
@@ -373,6 +413,7 @@ if on ENABLE_KIOSK; then
             dconf-cli dconf-gsettings-backend gsettings-desktop-schemas dbus-bin
     fi
 fi
+on ENABLE_WINAMP && $APT install python3-aiohttp
 
 # ─── 2. Bluetooth (UB500): for the proxy and/or jvc2mqtt ────────────────────
 if [ "$BT_NEEDED" = 1 ]; then
@@ -654,7 +695,108 @@ if old_radio_parts; then
     warn "  git clone $JVC2MQTT_URL /opt/jvc2mqtt/src && /opt/jvc2mqtt/src/install.sh"
 fi
 
-# ─── 7. Convenience commands ──────────────────────────────────────────────────
+# ─── 7. Winamp remote for Music Assistant (Webamp in the kiosk) ──────────────
+# winamp-server.py serves Webamp and passes its buttons, playlist, volume and
+# equalizer on to one Music Assistant player. The MA token reaches the service
+# as a systemd credential, and the service runs as a throwaway user. The
+# visualizer reads Squeezelite's audio export: a drop-in adds -v to whatever
+# Squeezelite this board runs (jvc2mqtt's radio player), whoever owns its ARGS.
+WINAMP_UNIT=/etc/systemd/system/odroid-ha-winamp.service
+WINAMP_DIR="$APP_DIR/winamp"
+SQ_VIS_DROPIN=/etc/systemd/system/squeezelite.service.d/zz-odroid-ha-winamp-vis.conf
+rm_winamp_unit() {
+    [ -f "$WINAMP_UNIT" ] || return 0
+    systemctl disable --now odroid-ha-winamp 2>/dev/null || true
+    rm -f "$WINAMP_UNIT"
+    systemctl daemon-reload
+}
+# Squeezelite restarts only when the drop-in actually changes (a short gap in the music)
+set_sq_vis() {   # $1: 1 = export on, 0 = off
+    local want=0
+    [ "$1" = 1 ] && systemctl cat squeezelite >/dev/null 2>&1 && want=1
+    if [ "$want" = 1 ] && [ ! -f "$SQ_VIS_DROPIN" ]; then
+        mkdir -p "$(dirname "$SQ_VIS_DROPIN")"
+        cat >"$SQ_VIS_DROPIN" <<'EOF'
+# Generated by odroid-ha install.sh: export the audio (-v) for the Winamp visualizer
+[Service]
+ExecStart=
+ExecStart=/usr/bin/squeezelite $ARGS -v
+EOF
+    elif [ "$want" = 0 ] && [ -f "$SQ_VIS_DROPIN" ]; then
+        rm -f "$SQ_VIS_DROPIN"
+    else
+        return 0
+    fi
+    systemctl daemon-reload
+    if systemctl is-active --quiet squeezelite; then systemctl restart squeezelite; fi
+}
+if on ENABLE_WINAMP; then
+    say "Setting up the Winamp remote (player \"${WINAMP_PLAYER:-Car-Radio}\")"
+    install -d "$WINAMP_DIR/www" "$WINAMP_DIR/skins"
+    install -d -m 755 "$WINAMP_SKIN_DIR"
+    install -m 755 "$SRC_DIR/winamp/winamp-server.py" "$WINAMP_DIR/winamp-server.py"
+    install -m 644 "$SRC_DIR/winamp/www/index.html" "$SRC_DIR/winamp/www/app.js" "$WINAMP_DIR/www/"
+    # Webamp itself: fetched once per version, kept only if the hash matches
+    WEBAMP_JS="$WINAMP_DIR/www/webamp.mjs"
+    if ! echo "$WEBAMP_SHA256  $WEBAMP_JS" | sha256sum -c --status 2>/dev/null; then
+        curl -fsSL -o "$WEBAMP_JS.tmp" "https://cdn.jsdelivr.net/npm/webamp@$WEBAMP_VERSION/built/webamp.bundle.min.mjs" \
+            || warn "Couldn't download Webamp $WEBAMP_VERSION"
+        if echo "$WEBAMP_SHA256  $WEBAMP_JS.tmp" | sha256sum -c --status 2>/dev/null; then
+            mv -f "$WEBAMP_JS.tmp" "$WEBAMP_JS"; chmod 644 "$WEBAMP_JS"
+        else
+            rm -f "$WEBAMP_JS.tmp"
+            warn "Webamp download missing or its checksum doesn't match; the Winamp page won't load."
+        fi
+    fi
+    # Skins: any .wsz in $WINAMP_SKIN_DIR shows up under Options → Skins.
+    # WINAMP_SKIN_URLS are fetched into it once (an existing file is kept).
+    for url in $WINAMP_SKIN_URLS; do
+        f=$(basename "${url%%\?*}")
+        f=$(printf '%s' "$f" | python3 -c 'import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read()))' | tr -cd 'A-Za-z0-9 ._()+-')
+        case "$f" in *.wsz|*.zip) ;; *) f="$f.wsz" ;; esac
+        [ -s "$WINAMP_SKIN_DIR/$f" ] && continue
+        if curl -fsSL -o "$WINAMP_SKIN_DIR/$f.tmp" "$url"; then
+            mv -f "$WINAMP_SKIN_DIR/$f.tmp" "$WINAMP_SKIN_DIR/$f"; chmod 644 "$WINAMP_SKIN_DIR/$f"
+        else
+            rm -f "$WINAMP_SKIN_DIR/$f.tmp"; warn "Couldn't download skin $url"
+        fi
+    done
+    set_sq_vis 1
+    if [ -s "$MA_TOKEN_FILE" ]; then
+        chmod 600 "$MA_TOKEN_FILE"
+        cat >"$WINAMP_UNIT" <<EOF
+# Generated by odroid-ha install.sh
+[Unit]
+Description=Winamp (Webamp) remote for Music Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 $WINAMP_DIR/winamp-server.py
+LoadCredential=ma-token:$MA_TOKEN_FILE
+DynamicUser=yes
+ProtectHome=yes
+NoNewPrivileges=yes
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable odroid-ha-winamp
+        systemctl restart odroid-ha-winamp
+    else
+        warn "No Music Assistant token in $MA_TOKEN_FILE: the Winamp remote stays off. Add one with  odroid-ha-install --configure"
+        rm_winamp_unit
+    fi
+else
+    rm_winamp_unit
+    set_sq_vis 0
+    rm -rf "$WINAMP_DIR"
+fi
+
+# ─── 8. Convenience commands ──────────────────────────────────────────────────
 install -m 755 "$SRC_DIR/install.sh" /usr/local/sbin/odroid-ha-install
 cat > /usr/local/bin/odroid-ha-check <<'EOF'
 #!/bin/sh
@@ -676,6 +818,10 @@ if on ENABLE_KIOSK; then
 fi
 if on ENABLE_BLUETOOTH && ! on ENABLE_BT_PROXY && [ ! -d /etc/jvc2mqtt ]; then
     echo "  - JVC car radio on this dongle: install $JVC2MQTT_URL"
+fi
+if on ENABLE_WINAMP; then
+    echo "  - Winamp remote: http://localhost:$WINAMP_PORT/ on the kiosk. Add a button to your"
+    echo "    dashboard that opens it (README.md \"Winamp remote\")."
 fi
 cat <<EOF
   - Add or remove parts:  odroid-ha-install --configure

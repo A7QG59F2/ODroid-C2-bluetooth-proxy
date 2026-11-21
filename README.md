@@ -1,12 +1,13 @@
-# Odroid C2 – Home Assistant Bluetooth Proxy + Dashboard Kiosk
+# Odroid C2 – Home Assistant kiosk, car radio and Bluetooth proxy
 
-One **DietPi** install on an Odroid C2 that does two jobs, plus the Bluetooth groundwork for a third:
+One **DietPi** install on an Odroid C2 that does these jobs (each one optional), plus the Bluetooth groundwork for the car radio:
 
 | Job | How |
 |---|---|
 | **Bluetooth proxy** for Home Assistant | [`denvera/bt-proxy`](https://github.com/denvera/bt-proxy) runs natively as a systemd service. HA sees it as an ESPHome Bluetooth proxy, with active connections supported. |
 | **Wall/desk dashboard kiosk** | Auto-login on tty1 → X → Chromium in kiosk mode on the MAGEX 10.1" touch screen, with an **on-screen keyboard** that pops up on its own. Restarts itself if it crashes. |
 | **Bluetooth dongle** for other software | Firmware + BlueZ for the UB500. The JVC car radio integration runs on it from its own repo, [**jvc2mqtt**](https://github.com/A7QG59F2/jvc2mqtt). |
+| **Winamp remote** | Winamp 2 ([Webamp](https://github.com/captbaritone/webamp)) on the touch screen, driving a Music Assistant player: skins, equalizer, playlist, visualizer. See [Winamp remote](#winamp-remote). |
 
 ## Hardware this targets
 
@@ -30,7 +31,7 @@ Put the UB500 on a short USB extension, away from the Wi-Fi dongle.
 3. Run (over SSH use `ssh -t` so it can ask questions):
    ```bash
    apt-get update && apt-get install -y git
-   git clone https://github.com/A7QG59F2/ODroid-C2-bluetooth-proxy /opt/odroid-ha/src
+   git clone https://github.com/A7QG59F2/ODroid-C2 /opt/odroid-ha/src
    cd /opt/odroid-ha/src && ./install.sh
    ```
 4. The first run asks which parts this board has, then installs only those:
@@ -86,7 +87,8 @@ Each step runs only for the parts that are switched on.
    - hides the cursor
    - starts the on-screen keyboard (Onboard) with its accessibility bus
    - waits for HA, then runs Chromium `--kiosk` in a restart loop
-6. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply; `--configure` to re-answer the questions).
+6. Winamp remote: `/opt/odroid-ha/winamp`, Webamp itself (downloaded once, checked by hash), **`odroid-ha-winamp.service`** on `localhost:8099`, and a Squeezelite drop-in that adds `-v` for the visualizer.
+7. Adds two commands: **`odroid-ha-check`** (health report) and **`odroid-ha-install`** (pull latest repo + re-apply; `--configure` to re-answer the questions).
 
 It's safe to re-run as often as you like. Install log: `/var/log/odroid-ha-install.log`.
 
@@ -143,6 +145,50 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 - **Covers the field you're typing in:** set `OSK_EDGE="top"`, or keep text inputs near the top of the dashboard.
 - **Turn it off:** `ONSCREEN_KEYBOARD="0"`.
 
+## Winamp remote
+
+Winamp 2 on the touch screen, but it plays nothing itself. Every control acts on one Music Assistant
+player (by default `Car-Radio`, jvc2mqtt's radio player), and Music Assistant's state is drawn back into the
+Winamp windows, so the radio's buttons, Home Assistant and the MA app all stay in step with it.
+
+| Winamp | Music Assistant |
+|---|---|
+| Play / pause / stop / previous / next, seek bar | The player's queue (next and previous follow MA's own shuffle order) |
+| Playlist window | The queue. Double-tap plays an entry; *Remove* deletes it from the queue; dragging moves it; *Remove all* clears the queue |
+| Shuffle / repeat | The queue's shuffle and repeat (repeat on = repeat all) |
+| Volume | The player's volume |
+| Equalizer (10 bands + preamp, on/off, presets) | A 10-band parametric EQ in the player's DSP settings (Settings → Players → the player → DSP), ±12 dB, at Winamp's frequencies. It shows up there and is kept when you change other DSP filters |
+| Eject, *Load list*, the Library button | A picker for MA playlists, albums and radio stations: tap to play, *+ Queue* to add |
+| *Add URL* / *Save list* | Adds a stream URL to the queue / saves the queue as an MA playlist |
+| Visualizer (spectrum and oscilloscope) | The real audio, read from Squeezelite (`-v`, added by a drop-in). Only when the player is this board's Squeezelite (jvc2mqtt's radio player) |
+| Options → Skins | Every `.wsz` in `/etc/odroid-ha/winamp-skins` (the choice is remembered) |
+
+Balance does nothing, since Music Assistant players have no balance control.
+
+**Set it up:**
+
+1. In Music Assistant's web UI, create a long-lived token for your user.
+2. Run `ssh -t root@<odroid-ip> odroid-ha-install --configure` and answer yes to the Winamp remote. It asks for the
+   player and the token (kept in `/etc/odroid-ha/ma-token`, root only, handed to the service as a systemd credential).
+3. Put a button on the kiosk's dashboard that opens `http://localhost:8099/`, e.g.:
+   ```yaml
+   type: button
+   name: Winamp
+   icon: mdi:music-box
+   tap_action:
+     action: url
+     url_path: http://localhost:8099/
+   ```
+   On the kiosk this opens Winamp full screen. Its **Dashboard** button goes back. (`localhost` is the board
+   itself, so the button only works on the kiosk. A Webpage card showing the same URL also works.)
+
+**Skins:** copy `.wsz` files to `/etc/odroid-ha/winamp-skins/`, or list download URLs in `WINAMP_SKIN_URLS`
+(the [Winamp Skin Museum](https://skins.webamp.org/) has thousands). `WINAMP_SKIN` picks the starting skin.
+
+**If something's off:** `journalctl -u odroid-ha-winamp -f` shows the Music Assistant connection and the player
+it follows. The status line at the bottom left of the page shows the same errors. If the visualizer runs ahead of
+or behind the music, change `WINAMP_VIS_DELAY_MS`.
+
 ## Settings (`/etc/odroid-ha/odroid-ha.conf`)
 
 | Key | Default | Meaning |
@@ -164,6 +210,13 @@ Settings live in `odroid-ha.conf`: `ONSCREEN_KEYBOARD`, `OSK_LAYOUT`, `OSK_THEME
 | `WIFI_SSID` | empty | Network to join (password via `--configure`, never stored in plain text) |
 | `WIFI_COUNTRY` / `WIFI_5GHZ_ONLY` | `US` / `1` | Regulatory domain; stay off 2.4 GHz |
 | `WIFI_DISABLE_POWERSAVE` | `1` | Keep RT5572 awake |
+| `ENABLE_WINAMP` | `0` | [Winamp remote](#winamp-remote) for a Music Assistant player. Needs the MA token `--configure` asks for (kept in `/etc/odroid-ha/ma-token`) |
+| `WINAMP_PLAYER` | empty (`Car-Radio`) | Music Assistant player it controls (name or id) |
+| `MA_URL` | empty (HA's host, port 8095) | Music Assistant address, e.g. `http://192.168.1.3:8095` |
+| `WINAMP_LISTEN` / `WINAMP_PORT` | `127.0.0.1` / `8099` | Where the page is served. `0.0.0.0` lets other devices use it too |
+| `WINAMP_SCALE` | `auto` | Size of the Winamp windows; `auto` fills the screen, or a factor like `3` |
+| `WINAMP_SKIN` / `WINAMP_SKIN_URLS` | empty | Starting skin (file name without `.wsz`); skin URLs to download |
+| `WINAMP_VIS_DELAY_MS` | `300` | Delay the visualizer to match the Bluetooth latency |
 
 ## Troubleshooting
 

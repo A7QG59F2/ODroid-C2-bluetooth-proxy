@@ -9,6 +9,7 @@ One **DietPi** install on an **Odroid C2** that is, at the same time (each part 
 1. a **dashboard kiosk** on a MAGEX 10.1" HDMI touch screen: tty1 autologin as user `kiosk` → `startx` → `kiosk/kiosk-session.sh` → Chromium `--kiosk`, with the **Onboard** on-screen keyboard
 2. the **Bluetooth (UB500) groundwork** (`ENABLE_BLUETOOTH`): firmware, BlueZ, powered on at boot. The **JVC car radio** integration that uses it lives in its own repo, **A7QG59F2/jvc2mqtt** (moved out 2026-11-17); don't add radio code back here.
 3. optionally a **Home Assistant Bluetooth proxy**: `denvera/bt-proxy` natively (uv venv in `/opt/bt-proxy`) as `bt-proxy.service`, ESPHome Native API on port 6053, plaintext only. **Off on the first board**: its constant BLE scanning makes outgoing BR/EDR connects from the RTL8761BU fail with "Host is down", so it can't coexist with jvc2mqtt (an already-open link survives scanning).
+4. optionally a **Winamp remote for Music Assistant** (`winamp/`, `ENABLE_WINAMP`): Webamp 2.3.1 (pinned, downloaded by install.sh with a sha256 check) served by `winamp-server.py` (aiohttp, `localhost:8099`, `DynamicUser`, MA token as a systemd credential from `/etc/odroid-ha/ma-token`). Webamp's media object is swapped for one that sends every action to Music Assistant's WebSocket API (queue, seek, shuffle/repeat, volume, playlist edits) and MA's state is dispatched back into Webamp's store; the EQ is a 10-band `parametric_eq` filter in the player's MA DSP config; the visualizer reads Squeezelite's `-v` shared-memory export (`-v` comes from a `squeezelite.service` drop-in, since jvc2mqtt owns `/etc/default/squeezelite`). Next/previous/eject are caught in a capture-phase click handler so MA, not Webamp, picks the track.
 
 The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so PowerShell for anything on the PC side.
 
@@ -35,7 +36,7 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 
   Onboard settings are **system dconf defaults** in `/etc/dconf/db/odroidha.d/00-onboard` (profile `/etc/dconf/profile/user`), with `force-to-top` (no WM) and `touch-input='none'`. Chrome-extension keyboards were rejected: HA inputs live in shadow DOM, and the old MV2 extensions are dead. Adam's earlier DietPi kiosk attempt failed on exactly this keyboard, so treat it as important.
 - No window manager. Chromium runs fullscreen under bare Xorg (`xserver-xorg-legacy`, `Xwrapper.config` `allowed_users=console`).
-- **Several boards, optional parts.** Adam is flashing multiple C2s; some lack the UB500, the RT5572 or the JVC. Each part has an `ENABLE_*` switch (`ENABLE_BLUETOOTH`, `ENABLE_BT_PROXY`, `ENABLE_WIFI`, `ENABLE_KIOSK`), chosen by the user through `--configure`, never by auto-detection. Switching a part off must undo what it set up, and `--check` only reports enabled parts. Proxy names default to `odroid-c2-<last 4 hex of eth0 MAC>` so boards don't collide in HA. The Wi-Fi password is only read from the terminal and stored as the derived 64-hex key; never write plaintext anywhere.
+- **Several boards, optional parts.** Adam is flashing multiple C2s; some lack the UB500, the RT5572 or the JVC. Each part has an `ENABLE_*` switch (`ENABLE_BLUETOOTH`, `ENABLE_BT_PROXY`, `ENABLE_WIFI`, `ENABLE_KIOSK`, `ENABLE_WINAMP`), chosen by the user through `--configure`, never by auto-detection. Switching a part off must undo what it set up, and `--check` only reports enabled parts. Proxy names default to `odroid-c2-<last 4 hex of eth0 MAC>` so boards don't collide in HA. The Wi-Fi password is only read from the terminal and stored as the derived 64-hex key; never write plaintext anywhere.
 
 ## Status (as of 2026-11-11)
 
@@ -55,6 +56,7 @@ The owner is Adam (GitHub `A7QG59F2`). He runs things from a **Windows PC**, so 
 
 ## Next work
 
+0. **Winamp remote on the real board** (written 2026-11-20, only tested on the PC against a fake MA): check the MA link, the queue/EQ round trip (does saving DSP interrupt playback?), the `/dev/shm/squeezelite-*` visualizer under `DynamicUser`, the scale on the 1920×1200 panel and touch dragging of sliders. MA is 2.10.13 (schema 65) at 192.168.1.3:8095.
 1. **Move the first board's radio parts to jvc2mqtt**: `odroid-ha-install`, then jvc2mqtt's `install.sh`; check that `odroid-ha-check` no longer reports the old radio parts.
 2. **Home Assistant side for the kiosk.**
    - HA user `kiosk` + `trusted_networks` for the Odroid's IP (see README)

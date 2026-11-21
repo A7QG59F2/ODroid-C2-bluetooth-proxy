@@ -89,3 +89,33 @@ WIFI_COUNTRY="US"
 # Use only the 5 GHz band, so Wi-Fi doesn't fight the Bluetooth dongle on 2.4 GHz
 WIFI_5GHZ_ONLY="1"
 WIFI_DISABLE_POWERSAVE="1"
+
+# ─── Winamp remote (Webamp, controls Music Assistant) ───────────────────────
+# Winamp 2 (Webamp) at http://localhost:8099/ on the kiosk. It plays nothing
+# itself: play/pause/seek, the playlist (Music Assistant's queue), volume,
+# shuffle/repeat and the equalizer (MA's per-player DSP) all act on one Music
+# Assistant player. The visualizer shows the real audio when that player is
+# this board's Squeezelite (jvc2mqtt's radio player). Needs a Music Assistant
+# long-lived token, which --configure asks for and keeps in
+# /etc/odroid-ha/ma-token (never in this file).
+ENABLE_WINAMP="0"
+# Music Assistant player it controls (name or id). Empty = "Car-Radio".
+WINAMP_PLAYER=""
+# Music Assistant's address. Empty = HA_URL's host, port 8095.
+MA_URL=""
+# Where the page is served. 127.0.0.1 = only this board's kiosk can open it;
+# 0.0.0.0 lets any device on the network use it (and control the player).
+WINAMP_LISTEN="127.0.0.1"
+WINAMP_PORT="8099"
+# Size of the Winamp windows: "auto" fills the screen, or a factor such as "3".
+WINAMP_SCALE="auto"
+# Skin to start with (file name without .wsz, from /etc/odroid-ha/winamp-skins).
+# Empty = Winamp's base skin. A skin picked in Options → Skins is remembered.
+WINAMP_SKIN=""
+# .wsz skin URLs to download into /etc/odroid-ha/winamp-skins, space separated,
+# e.g. from the Winamp Skin Museum (skins.webamp.org). You can also copy .wsz
+# files there yourself.
+WINAMP_SKIN_URLS=""
+# The visualizer runs ahead of what you hear (Bluetooth delay). Raise this if
+# it still leads the music, lower it if it lags (milliseconds).
+WINAMP_VIS_DELAY_MS="300"
