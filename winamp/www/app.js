@@ -484,3 +484,138 @@ await webamp.renderInto(stage);
 setInterval(() => { if (bridge.queueState === "playing") bridge.media?.emit("timeupdate"); }, 250);
 
 link.connect();
+
+// ─── Title bars always drawn as active ──────────────────────────────────────
+// Winamp draws the windows without focus with a dimmed, stippled title
+// ("ghosted" text), and only one window has focus. On a kiosk that's all
+// three side by side, so copy each skin's focused title bar rules over the
+// unfocused ones. Webamp swaps the skin's <style> on a skin change: redo it.
+const focusCss = document.createElement("style");
+const WINDOW_SELECTED = /^#webamp (\.selected|\.shade\.selected|\.llama\.selected|\.gen-window\.selected|#equalizer-window(?:\.shade)?\.selected|#playlist-window-shade\.selected)(?=[ ]|$)/;
+function alwaysFocused() {
+  const rules = [];
+  for (const sheet of document.styleSheets) {
+    if (sheet.ownerNode === focusCss) continue;
+    let list;
+    try { list = sheet.cssRules; } catch { continue; }
+    for (const r of list) {
+      if (!r.selectorText || !r.selectorText.includes(".selected")) continue;
+      const sels = r.selectorText.split(",").map((s) => s.trim())
+        .filter((s) => WINDOW_SELECTED.test(s))
+        .map((s) => "html " + s.replace(WINDOW_SELECTED, (m, win) => "#webamp " + win.replace(".selected", "")).replace(/ +$/, ""));
+      if (sels.length) rules.push(`${sels.join(", ")} { ${r.style.cssText} }`);
+    }
+  }
+  const text = rules.join("\n");
+  if (focusCss.textContent !== text) focusCss.textContent = text;
+  if (!focusCss.isConnected) document.head.append(focusCss);
+}
+let focusTimer = 0;
+new MutationObserver((muts) => {
+  if (muts.every((m) => m.target === focusCss || [...m.addedNodes].includes(focusCss))) return;
+  clearTimeout(focusTimer);
+  focusTimer = setTimeout(alwaysFocused, 100);
+}).observe(document.head, { childList: true, subtree: true, characterData: true });
+alwaysFocused();
+
+// ─── Full-screen visualizer ─────────────────────────────────────────────────
+// Its own spectrum and oscilloscope from the same samples, drawn on a small
+// canvas blown up as hard pixels (cheap for the C2's software rendering), in
+// the skin's visualizer colors. Tap to close; the corner button flips mode.
+const fv = {
+  el: $("#fullvis"), canvas: $("#fvcanvas"), mode: "bars", raf: 0, last: 0,
+  N: 2048, bars: 48, levels: null, peaks: null, peakHold: null,
+  open() {
+    this.el.classList.add("open");
+    const px = 8;   // screen pixels per canvas pixel
+    this.canvas.width = Math.floor(window.innerWidth / px);
+    this.canvas.height = Math.floor(window.innerHeight / px);
+    this.levels = new Float32Array(this.bars);
+    this.peaks = new Float32Array(this.bars);
+    this.peakHold = new Float32Array(this.bars);
+    this.raf = requestAnimationFrame((t) => this.frame(t));
+  },
+  close() { this.el.classList.remove("open"); cancelAnimationFrame(this.raf); this.raf = 0; },
+  colors() {
+    const c = bridge.webamp?.store?.getState().display?.skinColors;
+    return c && c.length >= 24 ? c : null;
+  },
+  fft(re, im) {   // in place, radix 2
+    const n = re.length;
+    for (let i = 1, j = 0; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = (-2 * Math.PI) / len, wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let cr = 1, ci = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const a = i + k, b = a + len / 2;
+          const tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+          re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+          const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+        }
+      }
+    }
+  },
+  frame(t) {
+    this.raf = requestAnimationFrame((tt) => this.frame(tt));
+    if (t - this.last < 33) return;   // ~30 fps
+    this.last = t;
+    const cv = this.canvas, g = cv.getContext("2d"), W = cv.width, H = cv.height;
+    const col = this.colors();
+    const bg = col ? col[0] : "rgb(0,0,0)";
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+    const raw = new Uint8Array(this.N);
+    vis.getByteTimeDomainData(raw);
+    if (this.mode === "scope") {
+      g.fillStyle = col ? col[21] : "rgb(255,255,255)";
+      const step = this.N / W;
+      let prev = null;
+      for (let x = 0; x < W; x++) {
+        const y = Math.round(H / 2 + ((raw[Math.floor(x * step)] - 128) / 128) * (H / 2 - 1));
+        const a = prev ?? y, lo = Math.min(a, y), hi = Math.max(a, y);
+        g.fillRect(x, lo, 1, hi - lo + 1);   // join the dots into a line
+        prev = y;
+      }
+      return;
+    }
+    const re = new Float32Array(this.N), im = new Float32Array(this.N);
+    for (let i = 0; i < this.N; i++) re[i] = ((raw[i] - 128) / 128) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (this.N - 1)));
+    this.fft(re, im);
+    const rate = vis.rate || 48000, binHz = rate / this.N, lo = 40, hi = Math.min(16000, rate / 2);
+    const slot = Math.floor(W / this.bars), barW = Math.max(1, slot - 1), x0 = Math.floor((W - slot * this.bars) / 2);
+    for (let b = 0; b < this.bars; b++) {
+      const f1 = lo * (hi / lo) ** (b / this.bars), f2 = lo * (hi / lo) ** ((b + 1) / this.bars);
+      const i1 = Math.max(1, Math.floor(f1 / binHz)), i2 = Math.max(i1 + 1, Math.ceil(f2 / binHz));
+      let m = 0;
+      for (let i = i1; i < i2 && i < this.N / 2; i++) m = Math.max(m, Math.hypot(re[i], im[i]));
+      // dB, -60..0 → 0..1, a little tilt so the highs aren't flat
+      const db = 20 * Math.log10(m / (this.N / 4) + 1e-9) + 6 * Math.log2(f1 / 1000 + 1);
+      const v = Math.min(1, Math.max(0, (db + 60) / 60));
+      this.levels[b] = v > this.levels[b] ? v : Math.max(v, this.levels[b] - 0.04);   // fall slowly
+      if (this.levels[b] >= this.peaks[b]) { this.peaks[b] = this.levels[b]; this.peakHold[b] = 12; }
+      else if (this.peakHold[b] > 0) this.peakHold[b]--;
+      else this.peaks[b] = Math.max(0, this.peaks[b] - 0.015);
+      const h = Math.round(this.levels[b] * (H - 2)), x = x0 + b * slot;
+      for (let y = 0; y < h; y++) {
+        // skin colors 2..17 run from the top of the meter (17 rows) down
+        g.fillStyle = col ? col[2 + Math.min(15, Math.floor((1 - y / H) * 16))] : `hsl(${120 - (y / H) * 120},100%,45%)`;
+        g.fillRect(x, H - 1 - y, barW, 1);
+      }
+      const py = H - 1 - Math.round(this.peaks[b] * (H - 2));
+      if (this.peaks[b] > 0.01) { g.fillStyle = col ? col[23] : "rgb(150,150,150)"; g.fillRect(x, py, barW, 1); }
+    }
+  },
+};
+$("#visbtn").onclick = () => fv.open();
+$("#fvmode").onclick = (e) => { e.stopPropagation(); fv.mode = fv.mode === "bars" ? "scope" : "bars"; };
+fv.el.onclick = () => fv.close();
+setInterval(() => {   // what's playing, along the bottom
+  const c = bridge.current;
+  $("#fvtitle").textContent = c ? [c.artist, c.title || c.name].filter(Boolean).join(" – ") : "";
+}, 1000);

@@ -161,6 +161,7 @@ Winamp windows, so the radio's buttons, Home Assistant and the MA app all stay i
 | Eject, *Load list*, the Library button | A picker for MA playlists, albums and radio stations: tap to play, *+ Queue* to add |
 | *Add URL* / *Save list* | Adds a stream URL to the queue / saves the queue as an MA playlist |
 | Visualizer (spectrum and oscilloscope) | The real audio, read from Squeezelite (`-v`, added by a drop-in). Only when the player is this board's Squeezelite (jvc2mqtt's radio player) |
+| The Visualizer button | The same audio full screen, in the skin's visualizer colors. The corner button switches between bars and oscilloscope; tap anywhere else to close |
 | Options → Skins | Every `.wsz` in `/etc/odroid-ha/winamp-skins` (the choice is remembered) |
 
 Balance does nothing, since Music Assistant players have no balance control.

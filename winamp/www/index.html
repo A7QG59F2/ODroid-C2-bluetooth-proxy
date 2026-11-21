@@ -31,6 +31,14 @@
     border-radius: 6px; padding: 8px 16px; }
   button:active { background: var(--line); }
 
+  /* Full-screen visualizer: a small canvas shown as big hard pixels */
+  #fullvis { position: fixed; inset: 0; background: #000; display: none; z-index: 50000; }
+  #fullvis.open { display: block; }
+  #fvcanvas { width: 100%; height: 100%; image-rendering: pixelated; }
+  #fvtitle { position: absolute; left: 24px; bottom: 20px; right: 260px; font-size: 26px; color: var(--dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #fvmode { position: absolute; right: 20px; bottom: 16px; font-size: 20px; opacity: .7; }
+
   /* Music Assistant library picker and text prompts */
   .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none;
     align-items: center; justify-content: center; z-index: 100000; }
@@ -59,7 +67,14 @@
 <div id="status">Connecting…</div>
 <div id="buttons">
   <button id="libbtn" type="button">Library</button>
+  <button id="visbtn" type="button">Visualizer</button>
   <button id="homebtn" type="button">Dashboard</button>
+</div>
+
+<div id="fullvis">
+  <canvas id="fvcanvas"></canvas>
+  <div id="fvtitle"></div>
+  <button id="fvmode" type="button">Bars / scope</button>
 </div>
 
 <div class="modal" id="lib">
