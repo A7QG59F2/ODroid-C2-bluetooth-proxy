@@ -119,7 +119,7 @@ check() {
         if [ -s "$MA_TOKEN_FILE" ]; then
             printf "  %-10s %s\n" winamp "$(systemctl is-active odroid-ha-winamp 2>/dev/null || true)"
             printf "  %-10s %s\n" "port $WINAMP_PORT" "$(ss -ltn 2>/dev/null | grep -q ":$WINAMP_PORT " && echo listening || echo 'not listening')"
-            printf "  %-10s %s\n" "MA link" "$(journalctl -u odroid-ha-winamp -n 30 --no-pager -o cat 2>/dev/null | grep -E 'Following player|Music Assistant' | tail -1 || true)"
+            printf "  %-10s %s\n" "MA link" "$(journalctl -u odroid-ha-winamp -n 30 --no-pager -o cat 2>/dev/null | grep -E 'Following player|Music Assistant:|Music Assistant player|Music Assistant OK' | tail -1 || true)"
         else
             printf "  %-10s %s\n" winamp "off (no Music Assistant token; odroid-ha-install --configure)"
         fi
